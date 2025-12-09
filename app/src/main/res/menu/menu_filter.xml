@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/filter_non_empty_name"
+        android:title="过滤未知设备"
+        app:showAsAction="never"
+        android:checkable="true"/>
+</menu>
