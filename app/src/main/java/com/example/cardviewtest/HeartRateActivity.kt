@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
@@ -16,52 +17,108 @@ import android.os.Message
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.fragment.app.Fragment
-import androidx.fragment.app.FragmentManager
-import androidx.fragment.app.FragmentPagerAdapter
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.github.mikephil.charting.charts.BarChart
 import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.AxisBase
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.data.BarData
+import com.github.mikephil.charting.data.BarDataSet
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
+import com.github.mikephil.charting.formatter.IAxisValueFormatter
 import com.google.android.material.tabs.TabLayout
 import java.lang.ref.WeakReference
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import java.util.Calendar
+import kotlin.apply
+import com.github.mikephil.charting.data.BarEntry
+import com.github.mikephil.charting.highlight.Highlight
+import com.github.mikephil.charting.listener.OnChartValueSelectedListener
+import com.github.mikephil.charting.utils.Utils
+import java.util.concurrent.ConcurrentLinkedQueue
 
 
 class HeartRateActivity : AppCompatActivity() {
     companion object{
         const val CHART_CHANGED = 1
+        const val MAX_DISPLAY_POINTS = 500
+        const val DRAW_PER_FRAME = 1
+        const val DRAW_INTERVAL = 4L
+        const val EXTRA_ECG_BATCH = "ecg_batch_data"
         const val ACTION_DATA_AVAILABLE = "com.example.bluetooth.ACTION_DATA_AVAILABLE"
-        private val tabTitles = arrayOf("日", "周", "月")
     }
-    private val timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
     private val TAG = "HeartRateActivity"
+    private val tabTitles = mutableListOf("实时","日", "周", "月")
     var isServiceConnected: Boolean = false
-    private val chartEntries = mutableListOf<Entry>()
     private lateinit var localBroadcastManager : LocalBroadcastManager
-    private lateinit var lineDataSet: LineDataSet
-    private lateinit var lineData: LineData
+    //******图*******************//
+    //******BarChart****************//
+    private lateinit var barChart: BarChart
+    private val barChartEntries = mutableListOf<BarEntry>()
+    private lateinit var charBarDataSet: LineDataSet
+    private lateinit var charBarData: LineData
+    ///******lineChart***********//
+    private var isShowingRealtimeChart = false
+    private lateinit var lineChart: LineChart
+    private val chartEntries = mutableListOf<Entry>()
+    private lateinit var chartContainer: FrameLayout
+    private lateinit var charLineDataSet: LineDataSet
+    private lateinit var charLineData: LineData
+    private val drawBuffer = ConcurrentLinkedQueue<HealthData>().apply {
+        addAll(generateTestHealthData(500)) // 一次性填充500个测试点
+    }
+    //////***************************************************
     private var typeData: String? = null
     private var curData: List<String>? = null
     private var isRegistered: Boolean = false
     val conversion = Conversion()
-    private lateinit var healthDataManager:HealthDataManager
     private lateinit var stateReceiver: StateReceiver
     val calendar = Calendar.getInstance()
-    private lateinit var chart : LineChart
     private lateinit var selectData: TextView
     private lateinit var dataUnit: TextView
     private lateinit var analyze: TextView
     private lateinit var analyzeContent: TextView
+
+    ///******************test***********************
+    private fun generateTestHealthData(count: Int): List<HealthData> {
+        val testData = mutableListOf<HealthData>()
+        val currentTime = System.currentTimeMillis()
+        val timeFields = TimeUtils.parseTimeFields(currentTime) // 复用你之前的时间工具类
+        val uploadTime = TimeUtils.timestampToFormat(currentTime)
+
+        // 生成模拟心电数据（正弦波，模拟真实波形）
+        for (i in 0 until count) {
+            // 正弦波公式：模拟心率波形（1mV振幅，500Hz采样）
+            val voltage = Math.sin(i * 0.1).toFloat() // 正弦波，值范围[-1,1]
+            testData.add(
+                HealthData(
+                    id = 0,
+                    year = timeFields.year,
+                    month = timeFields.month,
+                    week = timeFields.week,
+                    day = timeFields.day,
+                    uploadTime = uploadTime,
+                    dataType = "4", // 心电类型
+                    value1 = voltage, // 核心：模拟电压值
+                    value2 = null,
+                    value3 = null,
+                    remark = "测试数据"
+                )
+            )
+        }
+        return testData
+    }
+    ///*******************test**********************
+
 
     @Suppress("DEPRECATION")
     fun getYearWeekForLowVersion(year: Int, month: Int, day: Int): Int {
@@ -73,10 +130,6 @@ class HeartRateActivity : AppCompatActivity() {
         return year * 100 + weekOfYear
     }
 
-    fun getCurrentTimeStr(): String {
-        val now = LocalDateTime.now() // 获取当前本地时间
-        return now.format(timeFormatter) // 转换为指定格式字符串
-    }
 
     // 蓝牙状态广播
     inner class StateReceiver(context: Context) : BroadcastReceiver(){
@@ -88,25 +141,11 @@ class HeartRateActivity : AppCompatActivity() {
                         Log.e(TAG,"Service is not connected")
                         return
                     }
+                    val batchData = intent?.getParcelableArrayListExtra<HealthData>(EXTRA_ECG_BATCH)
+                    batchData?.let { drawBuffer.addAll(it) }
                     curData = bluetoothBinder.readMessage()
                     curData?.let {
-                        val year = calendar.get(Calendar.YEAR)
-                        val month = calendar.get(Calendar.MONTH)
-                        val day = calendar.get(Calendar.DAY_OF_MONTH)
-                        val week = getYearWeekForLowVersion(year,month,day)
-                        val data = HealthData(
-                             year = year,
-                            month = month,
-                            week = week,
-                            day = day,
-                            dataType = typeData?:"",
-                            uploadTime = getCurrentTimeStr(),
-                            value1 = curData,
-                            value2 = 0.0,
-                            value3 = 0.0
-                        )
-                        healthDataManager.insertData(data)
-                        draw(curData)
+
                     }
                 }
                 BluetoothAdapter.ACTION_STATE_CHANGED ->{
@@ -141,13 +180,14 @@ class HeartRateActivity : AppCompatActivity() {
         override fun handleMessage(msg: Message) {
             super.handleMessage(msg)
             val activity = weakActivity.get() ?: return
-            val chart:LineChart = activity.findViewById(R.id.chart1)
+            val chart:LineChart = activity.findViewById(R.id.chartContainer)
             when(msg.what){
                 CHART_CHANGED ->{
-                    val lineDataSet = chart.data?.dataSets?.firstOrNull() as? LineDataSet
-                    lineDataSet?.notifyDataSetChanged()
-                    chart.notifyDataSetChanged()
-                    chart.invalidate()
+                    activity.lineChart?.let { chart ->
+                        chart.data?.notifyDataChanged()
+                        chart.notifyDataSetChanged()
+                        chart.invalidate()
+                    }
                 }
             }
         }
@@ -172,6 +212,7 @@ class HeartRateActivity : AppCompatActivity() {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
+        analyzeContent = findViewById(R.id.analyze_content)
         val toolbarHeartRate: Toolbar = findViewById(R.id.toolbar_heart_rate)
         setSupportActionBar(toolbarHeartRate)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
@@ -184,15 +225,12 @@ class HeartRateActivity : AppCompatActivity() {
         bindService(intent,connect, Context.BIND_AUTO_CREATE)
         stateReceiver = StateReceiver(this)
         initBluetoothReceiver()
-        healthDataManager = HealthDataManager(this)
         //初始化tabLayout
         initTabLayout()
         //初始化界面数据
         initCurData()
         //初始化图表
-        initChart()
         //初始化数据库
-        initDataBase(this)
         // 初始化图表默认显示“日”维度
 
     }
@@ -219,20 +257,179 @@ class HeartRateActivity : AppCompatActivity() {
             return
         }
     }
+    //*******添加View*******************//
+    // 切换到“实时图”Tab时调用
+    private fun showRealtimeChart() {
+        chartContainer = findViewById(R.id.chartContainer)
+        chartContainer.removeAllViews()
+        lineChart = LineChart(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            description.isEnabled = false // 关闭描述
+            legend.isEnabled = false      // 关闭图例
+            setTouchEnabled(false)        // 关闭触摸交互
+            xAxis.isEnabled = false       // 关闭X轴
+            axisLeft.isEnabled = false    // 关闭左Y轴
+            axisRight.isEnabled = false   // 关闭右Y轴
+            // 折线样式
+            chartEntries.clear()
+            chartEntries.add(Entry(0f,0f))
+            charLineDataSet = LineDataSet(chartEntries, "实时心电").apply {
+                color = Color.RED
+                lineWidth = 2f
+                setDrawCircles(false) // 不画每个点的圆圈
+                setDrawValues(false)  // 不显示数值
+            }
+            charLineData = LineData(listOf(charLineDataSet)) // 设置空数据（后续动态填充）
+            this.data = charLineData
+        }
+        // 第三步：把LineChart添加到FrameLayout容器
+        chartContainer.addView(lineChart)
+    }
+
+    // 切换到“日/周/年”Tab时调用
+    private fun showBarChart(type: String) {
+        chartContainer = findViewById<FrameLayout>(R.id.chartContainer)
+        chartContainer.removeAllViews()
+        // ========== 1. 定义各维度的完整标签 + 要显示的刻度数量 ==========
+        val (xAxisLabels, showLabelCount, step) = when (type) {
+            "日" -> {
+                // 日维度：24小时，显示6个刻度（每4小时一个：00:00、04:00...20:00）
+                val labels = listOf(
+                    "00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00",
+                    "07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00",
+                    "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00",
+                    "21:00", "22:00", "23:00", "24:00"
+                )
+                Triple(labels, 4, 6) // 显示6个标签，步长4（每4个索引显示一个）
+            }
+            "周" -> {
+                // 周维度：7天，显示4个刻度（周一、周三、周五、周日）
+                val labels = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+                Triple(labels, 4, 2) // 显示4个标签，步长2
+            }
+            "月" -> {
+                // 月维度：30天，显示10个刻度（每3天一个：1日、4日...28日）
+                val labels = mutableListOf<String>()
+                for (day in 1..30) labels.add("${day}日")
+                Triple(labels, 5, 6) // 显示10个标签，步长3
+            }
+            else -> Triple(emptyList(), 0, 0)
+        }
+        barChartEntries.clear()
+        for (i in xAxisLabels.indices) {
+            val randomValue = (65 + Math.random() * 10).toFloat()
+            barChartEntries.add(BarEntry(i.toFloat(), randomValue))
+        }
+        barChart = BarChart(this).apply {
+            // 设置图表尺寸：全屏填充FrameLayout
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            // 样式配置
+            description.isEnabled = false
+            legend.isEnabled = false
+            xAxis.apply {
+                position= XAxis.XAxisPosition.BOTTOM
+                setDrawGridLines(false)
+                setLabelCount(showLabelCount, false)
+            }
+            axisRight.setDrawLabels(false)
+            axisRight.setDrawAxisLine(false)
+            axisLeft.setDrawGridLines(false)
+
+            val valueFormatter = object : IAxisValueFormatter {
+                override fun getFormattedValue(value: Float, axis: AxisBase?): String? {
+                    val index = value.toInt()
+                    return if (index % step == 0 && index in xAxisLabels.indices) {
+                        xAxisLabels[index]
+                    } else {
+                        ""
+                    }
+                }
+            }
+            val dataSet = BarDataSet(barChartEntries, "${type}统计").apply {
+                color = Color.BLUE
+                barBorderWidth = 0f
+                setDrawValues(false)
+            }
+            data = BarData(listOf(dataSet))
+            setOnChartValueSelectedListener(object : OnChartValueSelectedListener{
+                override fun onValueSelected(e: Entry?, h: Highlight?) {
+                    if (e is BarEntry) {
+                        val value = e.y // 比如 70.5f
+                        val xIndex = e.x.toInt()
+                        val xLabel = if (xIndex in xAxisLabels.indices) xAxisLabels[xIndex] else "未知"
+                        val currentType = type
+                        Log.d("ChartClick", "维度：${typeData}，标签：$xLabel，数值：$value")
+                        runOnUiThread {
+                            selectData.setText("$value")
+                            analyzeContent.setText("您的${typeData}正常,请继续保持\uD83D\uDCAA！")
+                        }
+                    }
+                }
+
+                override fun onNothingSelected() {
+                    runOnUiThread {
+                        selectData.setText("--")
+                        analyzeContent.setText("")
+                    }
+                }
+            })
+        }
+        chartContainer.addView(barChart)
+    }
+
     fun initTabLayout(){
         val tabLayout: TabLayout = findViewById(R.id.tab_layout1)
-        tabTitles.forEach { title ->
+        val finalTabTitles = if (typeData != "心率") {
+            tabTitles.filter { it != "实时" }.toList()
+        } else {
+            tabTitles.toList()
+        }
+
+        finalTabTitles.forEach { title ->
             tabLayout.addTab(tabLayout.newTab().setText(title))
         }
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
-                // 根据 Tab 位置更新图表（0=日，1=周，2=月）
-                chartDataChanged(tab.position)
+                chartDataChanged(finalTabTitles[tab.position])
             }
-            override fun onTabUnselected(tab: TabLayout.Tab) {}
+            override fun onTabUnselected(tab: TabLayout.Tab) {
+                val unselectedTitle = finalTabTitles[tab.position]
+                if (unselectedTitle == "实时") {
+                    isShowingRealtimeChart = false
+                    chartEntries.clear()
+                }
+            }
             override fun onTabReselected(tab: TabLayout.Tab) {}
         })
+        if (finalTabTitles.isNotEmpty()) {
+            chartDataChanged(finalTabTitles[0])
+        }
     }
+
+    private fun chartDataChanged(tabTitle: String) {
+        when (tabTitle) {
+            "实时" -> {
+                showRealtimeChart()
+                isShowingRealtimeChart = true
+                handler.removeCallbacks(drawLineRunnable)
+                handler.post(drawLineRunnable)
+            }
+            "日" -> {showBarChart("日")
+                isShowingRealtimeChart = false}
+            "周" -> {showBarChart("周")
+                isShowingRealtimeChart = false}
+            "月" -> {showBarChart("月")
+                isShowingRealtimeChart = false}
+        }
+    }
+
+
     fun initCurData(){
         selectData = findViewById(R.id.select_data)
         dataUnit = findViewById(R.id.unit)
@@ -258,7 +455,7 @@ class HeartRateActivity : AppCompatActivity() {
             }
             "肺活量" ->{
                 selectData.setText("--")
-                dataUnit.setText("")
+                dataUnit.setText("mL")
             }
             "血压" ->{
                 selectData.setText("-/-")
@@ -269,92 +466,36 @@ class HeartRateActivity : AppCompatActivity() {
                 dataUnit.setText("")
             }
         }
-
-
     }
-
-    fun initChart(){
-        chart = findViewById(R.id.chart1)
-        // 初始化数据集
-        if (chartEntries.isNotEmpty()) {
-            lineDataSet = LineDataSet(chartEntries, typeData)
-            lineDataSet.color = resources.getColor(R.color.black, theme) // 适配 Android 6.0+ 的正确写法
-            lineDataSet.setDrawValues(false) // 不显示数值标签，提升性能
-
-            lineData = LineData(lineDataSet)
-            chart.data = lineData
-        } else {
-            chart.data = null
-        }
-        // 图表基础配置（按需调整）
-        chart.setAutoScaleMinMaxEnabled(true) // 自动缩放Y轴
-        chart.setDrawGridBackground(false)
-        chart.setNoDataText("暂无数据！")
-        chart.setGridBackgroundColor(getResources().getColor(R.color.white))
-        chart.description.isEnabled = false
-    }
-
-    fun initDataBase(context: Context){
-        val dbHelper = DataBase(context,"HealthData.db",2)
-        val db = dbHelper.writableDatabase
-        if (db.isOpen){
-            Log.d(TAG,"SQL get")
-        } else{
-            Log.e(TAG,"SQL not get")
-        }
-    }
-
-    fun draw(myData: List<String>?){
-        if (myData == null) {
-            Log.e(TAG,"传入draw数据为空!")
-            return
-        }
-        val startX = chartEntries.size.toFloat()
-        myData.forEachIndexed { index, dataStr ->
-            val value = dataStr.toUInt().toInt()
-            chartEntries.add(Entry(startX + index, value.toFloat())) // 新增数据点，修改数据集
-        }
-        val msg = Message()
-        msg.what = CHART_CHANGED
-        handler.sendMessage(msg)
-    }
-
-    fun chartDataChanged(type: Int){
-        chart.clear()
-        // 2. 根据维度配置横坐标和数据源
-        val xAxis = chart.xAxis
-        //还没写数据库QAQ
-
-        when (type) {
-            0 -> { // 日维度：横坐标 00:00-24:00
-
+    ///*********************取点********************
+    private val drawLineRunnable = object : Runnable {
+        override fun run() {
+            repeat(DRAW_PER_FRAME) {
+                val data = drawBuffer.poll() ?: return@repeat
+                addEntryToLineChart(data) // 新增点到Chart
             }
-            1 -> { // 周维度：横坐标 周一到周日
+            handler.postDelayed(this, DRAW_INTERVAL)
+        }
+    }
 
+    // 新增点到Chart
+    private fun addEntryToLineChart(ecgData: HealthData) {
+        // 1. 添加新Entry（X轴=当前点数，Y轴=电压值）
+        ecgData.value1?:return
+        chartEntries.add(Entry(chartEntries.size.toFloat(), ecgData.value1))
+        if (chartEntries.size > MAX_DISPLAY_POINTS) {
+            chartEntries.removeFirstOrNull()
+            chartEntries.forEachIndexed { index, entry ->
+                entry.x = index.toFloat()
             }
-            2 -> { // 月维度：横坐标 1-31日
-
-            }
+            charLineDataSet.notifyDataSetChanged()
         }
 
-        // 3. 刷新图表
-
-        val msg = Message()
-        msg.what = CHART_CHANGED
-        handler.sendMessage(msg)
-    }
-
-    private fun getWeekData(){
-
-
-    }
-
-    private fun getMonthData(){
-
-    }
-
-    private fun getDayData(){
-
+        charLineDataSet.values = chartEntries
+        charLineData.notifyDataChanged()
+        lineChart.data = charLineData
+        lineChart.notifyDataSetChanged()
+        lineChart.invalidate()
     }
 
     override fun onDestroy() {

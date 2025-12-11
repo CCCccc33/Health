@@ -1,7 +1,14 @@
 package com.example.cardviewtest
 
+import android.os.Parcelable
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+import kotlinx.parcelize.Parcelize
+
+@Entity(tableName = "HealthData")
+@Parcelize
 data class HealthData(
-    val id: Long = 0, // 主键（新增时传0，插入后返回自增ID）
+    @PrimaryKey(autoGenerate = true) val id: Long = 0, // 主键（新增时传0，插入后返回自增ID）
     val year: Int,
     val month: Int,
     val week: Int,
@@ -12,4 +19,4 @@ data class HealthData(
     val value2: Float?,
     val value3: Float?,
     val remark: String? = null
-)
+): Parcelable

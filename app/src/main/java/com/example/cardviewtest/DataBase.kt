@@ -1,58 +1,56 @@
 package com.example.cardviewtest
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
-import android.util.Log
+import androidx.room.Dao
+import androidx.room.Database
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.room.Transaction
 
+@Dao
+interface HealthDataDao{
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBatch(dataList: List<HealthData>)
+    // 事务封装（批量插入提速3-5倍）
+    @Transaction
+    suspend fun insertBatchInTransaction(dataList: List<HealthData>) = insertBatch(dataList)
 
-class DataBase(val context: Context,name: String,version: Int):
-    SQLiteOpenHelper(context,name,null,version){
-    private val CREATE_TABLE_SQL = """
-        CREATE TABLE ${DbConstants.TABLE_HEALTH} (
-            ${DbConstants.COL_ID} INTEGER PRIMARY KEY AUTOINCREMENT,
-            ${DbConstants.COL_YEAR} INTEGER NOT NULL,
-            ${DbConstants.COL_MONTH} INTEGER NOT NULL,
-            ${DbConstants.COL_WEEK} INTEGER NOT NULL,
-            ${DbConstants.COL_DAY} INTEGER NOT NULL,
-            ${DbConstants.COL_UPLOAD_TIME} TEXT NOT NULL,
-            ${DbConstants.COL_DATA_TYPE} INTEGER NOT NULL,
-            ${DbConstants.COL_VALUE1} REAL,
-            ${DbConstants.COL_VALUE2} REAL,
-            ${DbConstants.COL_VALUE3} REAL,
-            ${DbConstants.COL_REMARK} TEXT
-        )
-    """.trimIndent()
+    @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month AND day = :day")
+    suspend fun getByDate(year: Int, month: Int, day: Int): List<HealthData>
+}
 
-    private val CREATE_TIME_INDEX = """
-        CREATE INDEX ${DbConstants.IDX_TIME} 
-        ON ${DbConstants.TABLE_HEALTH} (${DbConstants.COL_YEAR}, ${DbConstants.COL_MONTH}, ${DbConstants.COL_DAY})
-    """.trimIndent()
-
-    private val CREATE_TIME_INDEX_WITH_WEEK = """
-    CREATE INDEX ${DbConstants.IDX_TIME_WITH_WEEK} 
-    ON ${DbConstants.TABLE_HEALTH} (${DbConstants.COL_WEEK}, ${DbConstants.COL_YEAR}, ${DbConstants.COL_MONTH}, ${DbConstants.COL_DAY})
-""".trimIndent()
-
-    // 创建数据类型索引
-    private val CREATE_TYPE_INDEX = """
-        CREATE INDEX ${DbConstants.IDX_DATA_TYPE} 
-        ON ${DbConstants.TABLE_HEALTH} (${DbConstants.COL_DATA_TYPE})
-    """.trimIndent()
-
-    private val TAG = "DataBase"
-    override fun onCreate(db: SQLiteDatabase?) {
-        db?.execSQL(CREATE_TABLE_SQL)
-        Log.d(TAG,"成功创建数据库")
-        db?.execSQL(CREATE_TIME_INDEX)
-        db?.execSQL(CREATE_TYPE_INDEX)
-        db?.execSQL(CREATE_TIME_INDEX_WITH_WEEK)
-        Log.d(TAG,"索引创建成功！")
+class HealthDataRepository(context: Context) {
+    private val dao = DataBase.getInstance(context).healthDataDao()
+    // 对外暴露的批量存储方法
+    suspend fun saveBatchData(dataList: List<HealthData>) {
+        dao.insertBatchInTransaction(dataList)
     }
+    suspend fun getHealthDataByDate(year: Int, month: Int, day: Int): List<HealthData> {
+        return dao.getByDate(year, month, day)
+    }
+}
 
-    override fun onUpgrade(db: SQLiteDatabase?, oldVersion: Int, newVersion: Int) {
-        db?.execSQL("drop table if exists myData")
-        db?.execSQL("drop table if exists createCategory")
-        onCreate(db)
+@Database(entities = [HealthData::class], version = 1, exportSchema = false)
+abstract class DataBase: RoomDatabase(){
+    abstract fun healthDataDao(): HealthDataDao
+    companion object{
+        @Volatile
+        private var INSTANCE: DataBase? = null
+        fun getInstance(context: Context): DataBase {
+            return INSTANCE ?: synchronized(this) {
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    DataBase::class.java,
+                    "ecg_db"
+                )
+//                    .allowMainThreadQueries() // 默认禁止主线程操作
+                    .build()
+                INSTANCE = instance
+                instance
+            }
+        }
     }
 }
