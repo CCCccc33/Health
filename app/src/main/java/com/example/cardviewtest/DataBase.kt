@@ -20,6 +20,12 @@ interface HealthDataDao{
 
     @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month AND day = :day")
     suspend fun getByDate(year: Int, month: Int, day: Int): List<HealthData>
+
+    @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month")
+    suspend fun getByMonth(year: Int, month: Int): List<HealthData>
+
+    @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month AND week = :week")
+    suspend fun getByWeek(year: Int, month: Int, week:Int): List<HealthData>
 }
 
 class HealthDataRepository(context: Context) {
@@ -30,6 +36,12 @@ class HealthDataRepository(context: Context) {
     }
     suspend fun getHealthDataByDate(year: Int, month: Int, day: Int): List<HealthData> {
         return dao.getByDate(year, month, day)
+    }
+    suspend fun getHealthDataByMonth(year: Int, month: Int): List<HealthData> {
+        return dao.getByMonth(year, month)
+    }
+    suspend fun getHealthDataByWeek(year: Int, month: Int,week:Int): List<HealthData> {
+        return dao.getByWeek(year, month,week)
     }
 }
 

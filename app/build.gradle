@@ -50,6 +50,8 @@ dependencies {
     implementation libs.mpandroidchart
     implementation libs.support.v4
     implementation libs.androidx.swiperefreshlayout
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.6.2"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4"
     implementation 'com.github.bumptech.glide:glide:5.0.5'
     implementation libs.androidx.fragment.ktx
     implementation libs.androidx.viewpager

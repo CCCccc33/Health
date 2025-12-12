@@ -27,7 +27,9 @@ object TimeUtils {
             year = calendar.get(Calendar.YEAR),
             month = calendar.get(Calendar.MONTH) + 1, // 月份从0开始，+1转为1-12
             week = calendar.get(Calendar.WEEK_OF_MONTH), // 当月第几周
-            day = calendar.get(Calendar.DAY_OF_MONTH) // 当月第几天
+            day = calendar.get(Calendar.DAY_OF_MONTH), // 当月第几天
+            hour = calendar.get(Calendar.HOUR_OF_DAY), // 24小时制的小时（0-23）
+            minute = calendar.get(Calendar.MINUTE) // 分钟（0-59）
         )
     }
 
@@ -36,6 +38,8 @@ object TimeUtils {
         val year: Int,
         val month: Int,
         val week: Int,
-        val day: Int
+        val day: Int,
+        val hour: Int,
+        val minute: Int
     )
 }
