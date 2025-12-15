@@ -17,6 +17,7 @@ import android.os.Message
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
+import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -46,6 +47,9 @@ import com.github.mikephil.charting.listener.OnChartValueSelectedListener
 import java.util.concurrent.ConcurrentLinkedQueue
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import kotlin.collections.component1
+import kotlin.collections.component2
+import kotlin.collections.iterator
 
 
 class HeartRateActivity : AppCompatActivity() {
@@ -53,7 +57,7 @@ class HeartRateActivity : AppCompatActivity() {
         const val CHART_CHANGED = 1
         const val MAX_DISPLAY_POINTS = 500
         const val DRAW_PER_FRAME = 1
-        const val DRAW_INTERVAL = 4L
+        const val DRAW_INTERVAL = 1L
         const val EXTRA_SINGLE_DATA = "extra_single_data"
         const val ACTION_DATA_AVAILABLE = "com.example.bluetooth.ACTION_DATA_AVAILABLE"
     }
@@ -75,9 +79,10 @@ class HeartRateActivity : AppCompatActivity() {
     private lateinit var chartContainer: FrameLayout
     private lateinit var charLineDataSet: LineDataSet
     private lateinit var charLineData: LineData
-    private val drawBuffer = ConcurrentLinkedQueue<HealthData>().apply {
-        addAll(generateTestHealthData(500)) // 一次性填充500个测试点
-    }
+    private val drawBuffer = ConcurrentLinkedQueue<HealthData>()
+//    private val drawBuffer = ConcurrentLinkedQueue<HealthData>().apply {
+//        addAll(generateTestHealthData(1000)) // 一次性填充500个测试点
+//    }
     //////***************************************************
     private var typeData: String? = null
     private var isRegistered: Boolean = false
@@ -91,36 +96,35 @@ class HeartRateActivity : AppCompatActivity() {
     private lateinit var healthRepository: HealthDataRepository
 
     ///******************test***********************
-    private fun generateTestHealthData(count: Int): List<HealthData> {
-        val testData = mutableListOf<HealthData>()
-        val currentTime = System.currentTimeMillis()
-        val timeFields = TimeUtils.parseTimeFields(currentTime) // 复用你之前的时间工具类
-        val uploadTime = TimeUtils.timestampToFormat(currentTime)
-
-        // 生成模拟心电数据（正弦波，模拟真实波形）
-        for (i in 0 until count) {
-            // 正弦波公式：模拟心率波形（1mV振幅，500Hz采样）
-            val voltage = Math.sin(i * 0.1).toFloat() // 正弦波，值范围[-1,1]
-            testData.add(
-                HealthData(
-                    id = 0,
-                    year = timeFields.year,
-                    month = timeFields.month,
-                    week = timeFields.week,
-                    day = timeFields.day,
-                    uploadTime = uploadTime,
-                    dataType = "01", // 心电类型
-                    value1 = voltage, // 核心：模拟电压值
-                    value2 = null,
-                    value3 = null,
-                    remark = "测试数据"
-                )
-            )
-        }
-        return testData
-    }
+//    private fun generateTestHealthData(count: Int): List<HealthData> {
+//        val testData = mutableListOf<HealthData>()
+//        val currentTime = System.currentTimeMillis()
+//        val timeFields = TimeUtils.parseTimeFields(currentTime) // 复用你之前的时间工具类
+//        val uploadTime = TimeUtils.timestampToFormat(currentTime)
+//
+//        // 生成模拟心电数据（正弦波，模拟真实波形）
+//        for (i in 0 until count) {
+//            // 正弦波公式：模拟心率波形（1mV振幅，500Hz采样）
+//            val voltage = Math.sin(i * 0.1).toFloat() // 正弦波，值范围[-1,1]
+//            testData.add(
+//                HealthData(
+//                    id = 0,
+//                    year = timeFields.year,
+//                    month = timeFields.month,
+//                    week = timeFields.week,
+//                    day = timeFields.day,
+//                    uploadTime = uploadTime,
+//                    dataType = "01", // 心电类型
+//                    value1 = voltage, // 核心：模拟电压值
+//                    value2 = null,
+//                    value3 = null,
+//                    remark = "测试数据"
+//                )
+//            )
+//        }
+//        return testData
+//    }
     ///*******************test**********************
-
 
     // 蓝牙状态广播
     inner class StateReceiver(context: Context) : BroadcastReceiver(){
@@ -128,19 +132,19 @@ class HeartRateActivity : AppCompatActivity() {
             val action = intent?.action
             when(action){
                 ACTION_DATA_AVAILABLE ->{
-                    if (typeData == "心率"){
+                    if (typeData != "心率"){
                         val data = intent.getParcelableArrayListExtra<HealthData>(EXTRA_SINGLE_DATA)
                         data?.forEach { myData ->
                             addEntryToBarChart(myData,curTab)
                         }
-
+                    }else{
+                        if (!isServiceConnected){
+                            Log.e(TAG,"Service is not connected")
+                            return
+                        }
+                        val batchData = bluetoothBinder.getBatchData()
+                        drawBuffer.addAll(batchData)   //感觉还是得丢点包，不能一直堆积
                     }
-                    if (!isServiceConnected){
-                        Log.e(TAG,"Service is not connected")
-                        return
-                    }
-                    val batchData = bluetoothBinder.getBatchData()
-                    drawBuffer.addAll(batchData)   //感觉还是得丢点包，不能一直堆积
                 }
                 BluetoothAdapter.ACTION_STATE_CHANGED ->{
                     val state = intent?.getIntExtra(BluetoothAdapter.EXTRA_STATE,0)
@@ -168,21 +172,11 @@ class HeartRateActivity : AppCompatActivity() {
     }
 
     private val handler = MyHandler(this)
-
     private class MyHandler(activity: HeartRateActivity) : Handler(Looper.getMainLooper()) {
         private val weakActivity = WeakReference<HeartRateActivity>(activity)
         override fun handleMessage(msg: Message) {
             super.handleMessage(msg)
             val activity = weakActivity.get() ?: return
-            when(msg.what){
-                CHART_CHANGED ->{
-                    activity.lineChart?.let { chart ->
-                        chart.data?.notifyDataChanged()
-                        chart.notifyDataSetChanged()
-                        chart.invalidate()
-                    }
-                }
-            }
         }
     }
     private lateinit var bluetoothBinder : BluetoothService.BluetoothBinder
@@ -193,7 +187,6 @@ class HeartRateActivity : AppCompatActivity() {
             bluetoothBinder.setReceive()
             typeData?.let { sendInitData(it) }
         }
-
         override fun onServiceDisconnected(name: ComponentName?) {
             Log.e(TAG,"Service connect faild")
         }
@@ -206,14 +199,7 @@ class HeartRateActivity : AppCompatActivity() {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
-        analyzeContent = findViewById(R.id.analyze_content)
-        val toolbarHeartRate: Toolbar = findViewById(R.id.toolbar_heart_rate)
-        setSupportActionBar(toolbarHeartRate)
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.setDisplayShowTitleEnabled(false)
-        toolbarHeartRate.navigationIcon?.setTint(getColor(R.color.black))
-        typeData = intent.getStringExtra("type")
-        toolbarHeartRate.setTitle(typeData)
+        initFindView()
         val intent = Intent(this, BluetoothService::class.java)
         startService(intent)
         bindService(intent,connect, Context.BIND_AUTO_CREATE)
@@ -222,6 +208,21 @@ class HeartRateActivity : AppCompatActivity() {
         initBluetoothReceiver()
         initTabLayout()
         initCurData()
+    }
+    fun initFindView(){
+        selectData = findViewById(R.id.select_data)
+        dataUnit = findViewById(R.id.unit)
+        analyze = findViewById(R.id.analyze)
+        analyzeContent = findViewById(R.id.analyze_content)
+        analyzeContent = findViewById(R.id.analyze_content)
+        chartContainer = findViewById(R.id.chartContainer)
+        val toolbarHeartRate: Toolbar = findViewById(R.id.toolbar_heart_rate)
+        setSupportActionBar(toolbarHeartRate)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.setDisplayShowTitleEnabled(false)
+        toolbarHeartRate.navigationIcon?.setTint(getColor(R.color.black))
+        typeData = intent.getStringExtra("type")
+        toolbarHeartRate.setTitle(typeData)
     }
     fun sendInitData(typeData: String){
         var sendData = "00"
@@ -249,7 +250,6 @@ class HeartRateActivity : AppCompatActivity() {
     //*******添加View*******************//
     // 切换到“实时图”Tab时调用
     private fun showRealtimeChart() {
-        chartContainer = findViewById(R.id.chartContainer)
         chartContainer.removeAllViews()
         lineChart = LineChart(this).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -258,6 +258,8 @@ class HeartRateActivity : AppCompatActivity() {
             )
             this.setNoDataText("正在获取最新实时数据...")
             this.setNoDataTextColor(Color.parseColor("#666666"))
+            xAxis.axisMaximum = MAX_DISPLAY_POINTS.toFloat() // X轴最大显示范围
+            setVisibleXRangeMaximum(MAX_DISPLAY_POINTS.toFloat())
             description.isEnabled = false // 关闭描述
             legend.isEnabled = false      // 关闭图例
             setTouchEnabled(false)        // 关闭触摸交互
@@ -266,7 +268,7 @@ class HeartRateActivity : AppCompatActivity() {
             axisRight.isEnabled = false   // 关闭右Y轴
             // 折线样式
             chartEntries.clear()
-//            chartEntries.add(Entry(0f,0f))
+            chartEntries.add(Entry(0f,0f))
             charLineDataSet = LineDataSet(chartEntries, "实时心电").apply {
                 color = Color.RED
                 lineWidth = 2f
@@ -280,7 +282,6 @@ class HeartRateActivity : AppCompatActivity() {
     }
 
     private fun showBarChart(type: String) {
-        chartContainer = findViewById<FrameLayout>(R.id.chartContainer)
         chartContainer.removeAllViews()
         val (xAxisLabels, step,_) = when (type) {
             "日" -> {
@@ -298,7 +299,6 @@ class HeartRateActivity : AppCompatActivity() {
                 Triple(labels, 1, 0) // 显示4个标签，步长2
             }
             "月" -> {
-                // 月维度：30天，显示10个刻度（每3天一个：1日、4日...28日）
                 val labels = mutableListOf<String>()
                 for (day in 1..30) labels.add("${day}日")
                 Triple(labels, 7, 0)
@@ -307,22 +307,27 @@ class HeartRateActivity : AppCompatActivity() {
         }
         barEntries1.clear()// 第一组：实际值
         barEntries2.clear() // 第二组：参考值
+
         //**************test**********************//
-        for (i in xAxisLabels.indices) {
-            val randomValue = (65 + Math.random() * 10).toFloat()
-            barEntries1.add(BarEntry(i.toFloat(), randomValue))
-            if(typeData == "血压"){
-                val randomValue2 = (65 + Math.random() * 10).toFloat()
-                barEntries2.add(BarEntry(i.toFloat(), randomValue2))
-            }
-        }
+//        for (i in xAxisLabels.indices) {
+//            val randomValue = (65 + Math.random() * 10).toFloat()
+//            barEntries1.add(BarEntry(i.toFloat(), randomValue))
+//            if(typeData == "血压"){
+//                val randomValue2 = (65 + Math.random() * 10).toFloat()
+//                barEntries2.add(BarEntry(i.toFloat(), randomValue2))
+//            }
+//        }
+        //*************test**********************//
+
+        //************从数据库取数*****************//
         val timestamp = TimeUtils.getCurrentTimestamp()
         val timeUtils = TimeUtils.parseTimeFields(timestamp)
         queryHealthData(type,timeUtils.year,
             timeUtils.month,
             timeUtils.week,
             timeUtils.day)
-        //*************test**********************//
+        //************从数据库取数*****************//
+
         barChart = BarChart(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -354,13 +359,19 @@ class HeartRateActivity : AppCompatActivity() {
                     }
                 }
             }
+            if (barEntries1.isEmpty()){
+                addChartData(barEntries1,xAxisLabels.size)
+            }
+            if (barEntries2.isEmpty()){
+                addChartData(barEntries2,xAxisLabels.size)
+            }
             val dataSet = BarDataSet(barEntries1, "${type}统计").apply {
                 color = Color.BLUE
                 barBorderWidth = 0f
                 setDrawValues(false)
             }
             if (typeData == "血压"){
-                val dataSet2 = BarDataSet(barEntries2, "参考心率").apply {
+                val dataSet2 = BarDataSet(barEntries2, "舒张压").apply {
                     color = Color.parseColor("#FF9800") // 橙色
                     barBorderWidth = 0f
                     setDrawValues(false)
@@ -423,6 +434,12 @@ class HeartRateActivity : AppCompatActivity() {
         chartContainer.addView(barChart)
     }
 
+    fun addChartData(barEntry: MutableList<BarEntry>,length:Int){
+        for (i in 0 until length){
+            barEntry.add(BarEntry(i.toFloat(),0f))
+        }
+    }
+
     fun initTabLayout(){
         val tabLayout: TabLayout = findViewById(R.id.tab_layout1)
         val finalTabTitles = if (typeData != "心率") {
@@ -430,7 +447,6 @@ class HeartRateActivity : AppCompatActivity() {
         } else {
             tabTitles.toList()
         }
-
         finalTabTitles.forEach { title ->
             tabLayout.addTab(tabLayout.newTab().setText(title))
         }
@@ -482,10 +498,6 @@ class HeartRateActivity : AppCompatActivity() {
 
 
     fun initCurData(){
-        selectData = findViewById(R.id.select_data)
-        dataUnit = findViewById(R.id.unit)
-        analyze = findViewById(R.id.analyze)
-        analyzeContent = findViewById(R.id.analyze_content)
         if (typeData == null){
             Log.e(TAG,"initCurData() typeData为空!")
             return
@@ -520,7 +532,6 @@ class HeartRateActivity : AppCompatActivity() {
     }
 
     //****************数据库取数**************************//
-
     private fun queryHealthData(type:String,
                                 targetYear:Int,
                                 targetMonth:Int,
@@ -531,28 +542,15 @@ class HeartRateActivity : AppCompatActivity() {
                 when(type){
                     "日" -> {
                         val healthDataList = healthRepository.getHealthDataByDate(
-                            targetYear,
-                            targetMonth,
-                            targetDay
-                        )
+                            targetYear, targetMonth, targetDay)
                         if (healthDataList.isEmpty()) {
                             Log.d("HealthQuery", "该日期没有健康数据")
-                            barEntries1.clear()
+                            clearChartData()
                             return@launch
                         }else{
-                            val hourValueMap = mutableMapOf<Int, MutableList<Float>>()
-                            for (data in healthDataList) {
-                                data.value1?:continue
-                                val upLoadTime = TimeUtils.formatToTimestamp(data.uploadTime)
-                                val timeUtils = TimeUtils.parseTimeFields(upLoadTime)
-                                val hour = timeUtils.hour
-                                hourValueMap.getOrPut(hour) { mutableListOf() }.add(data.value1)
-                                Log.d("HealthData", "时间: ${data.uploadTime}, 数值: ${data.value1}")
-                            }
-                            barEntries1.clear()
-                            for ((hour, valueList) in hourValueMap) {
-                                val averageHourValue = valueList.average().toFloat()
-                                barEntries1.add(BarEntry(hour.toFloat(), averageHourValue))
+                            getAverageData(healthDataList,1,barEntries1,"hour")
+                            if (typeData == "血压"){
+                                getAverageData(healthDataList, 2,barEntries2,"hour")
                             }
                         }
                     }
@@ -560,18 +558,12 @@ class HeartRateActivity : AppCompatActivity() {
                         val healthDataWeekList = healthRepository.getHealthDataByWeek(targetYear, targetMonth,targetWeek)
                         if (healthDataWeekList.isEmpty()) {
                             Log.d("HealthQuery", "该周没有健康数据")
-                            barEntries1.clear()
+                            clearChartData()
                             return@launch
                         }else{
-                            val dayValueMap = mutableMapOf<Int, MutableList<Float>>()
-                            for (data in healthDataWeekList) {
-                                data.value1?:continue
-                                dayValueMap.getOrPut(data.day) { mutableListOf() }.add(data.value1)
-                            }
-                            barEntries1.clear()
-                            for ((day, valueList) in dayValueMap) {
-                                val averageHourValue = valueList.average().toFloat()
-                                barEntries1.add(BarEntry(day.toFloat(), averageHourValue))
+                            getAverageData(healthDataWeekList, 1,barEntries1)
+                            if (typeData == "血压"){
+                                getAverageData(healthDataWeekList, 2,barEntries2)
                             }
                         }
 
@@ -581,19 +573,14 @@ class HeartRateActivity : AppCompatActivity() {
                             targetYear, targetMonth)
                         if (healthDataMonthList.isEmpty()) {
                             Log.d("HealthQuery", "该月没有健康数据")
-                            barEntries1.clear()
+                            clearChartData()
                             return@launch
                         }else{
-                            val dayValueMap = mutableMapOf<Int, MutableList<Float>>()
-                            for (data in healthDataMonthList) {
-                                data.value1?:continue
-                                dayValueMap.getOrPut(data.day) { mutableListOf() }.add(data.value1)
-//                                Log.d("HealthData", "时间: ${data.uploadTime}, 数值: ${data.value1}")
-                            }
-                            barEntries1.clear()
-                            for ((day, valueList) in dayValueMap) {
-                                val averageHourValue = valueList.average().toFloat()
-                                barEntries1.add(BarEntry(day.toFloat(), averageHourValue))
+                            getAverageData(healthDataMonthList,
+                                1,barEntries1)
+                            if (typeData == "血压"){
+                                getAverageData(healthDataMonthList,
+                                    2,barEntries2)
                             }
                         }
                     }
@@ -603,6 +590,32 @@ class HeartRateActivity : AppCompatActivity() {
             }
         }
     }
+    fun getAverageData(dataList:List<HealthData>,dataType:Int,barEntry: MutableList<BarEntry>,keyType: String = "day"){
+        val valueMap = mutableMapOf<Int, MutableList<Float>>()
+        for (data in dataList) {
+            val value: Float = if (dataType == 2){  //血压的收缩压
+               data.value2?:continue
+            }else{ data.value1?:continue }
+            if (keyType == "hour"){
+                val upLoadTime = TimeUtils.formatToTimestamp(data.uploadTime)
+                val timeUtils = TimeUtils.parseTimeFields(upLoadTime)
+                val hour = timeUtils.hour
+                valueMap.getOrPut(hour) { mutableListOf() }.add(value)
+            }else {
+                valueMap.getOrPut(data.day) { mutableListOf() }.add(value)
+            }
+            Log.d("HealthData", "时间: ${data.uploadTime}, 数值: ${value.toInt()}")
+            barEntry.clear()
+            for ((day, valueList) in valueMap) {
+                val averageValue = valueList.average().toFloat()
+                barEntry.add(BarEntry(day.toFloat(), averageValue))
+            }
+        }
+    }
+    fun clearChartData(){
+        barEntries1.clear()
+        barEntries2.clear()
+    }
     //****************数据库取数**************************//
 
     ///*********************画点********************//
@@ -610,13 +623,10 @@ class HeartRateActivity : AppCompatActivity() {
         override fun run() {
             if (isShowingRealtimeChart){
                 repeat(DRAW_PER_FRAME) {
-                    var data: HealthData?
-                    do {
-                        data = drawBuffer.poll()
-                        data?.let {
-                            addEntryToLineChart(it) // 新增点到Chart
-                        }
-                    }while (data != null)
+                    val data = drawBuffer.poll()
+                    data?.let {
+                        addEntryToLineChart(it) // 新增点到Chart
+                    }
                 }
             }
             handler.postDelayed(this, DRAW_INTERVAL)
@@ -635,7 +645,6 @@ class HeartRateActivity : AppCompatActivity() {
             }
             charLineDataSet.notifyDataSetChanged()
         }
-
         charLineDataSet.values = chartEntries
         charLineData.notifyDataChanged()
         lineChart.data = charLineData

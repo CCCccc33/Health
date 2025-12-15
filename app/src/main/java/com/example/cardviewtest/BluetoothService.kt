@@ -203,11 +203,23 @@ class BluetoothService : Service() {
                 bytes?.let {
                     val dataList = parseRawData(bytes) //解析接收数据
                     if (curTypeData == "01"){  //心率单独处理
+                        //心率的写数据库待定，不知道是帧格式还是activity计算
                         dataCacheQueue.addAll(dataList)
                         if (dataCacheQueue.size>=BATCH_SIZE){
                             processBatchData()
                         }
                     }else{
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                dataRepository.saveBatchData(dataList)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "存库失败：${e.message}")
+                                // 失败重试：重新入队
+                                dataCacheQueue.addAll(dataList)
+                                delay(1000)
+                                launch { dataRepository.saveBatchData(dataList) }
+                            }
+                        }//这里不对，不是都写入数据库，而是写结果
                         val curData = dataList.firstOrNull()  // 想一下怎么送出去
                         val newDataList = ArrayList<HealthData>()
                         if (curData != null) {
@@ -260,8 +272,8 @@ class BluetoothService : Service() {
         val receiveTimestamp = TimeUtils.getCurrentTimestamp()
         val timeFields = TimeUtils.parseTimeFields(receiveTimestamp)
         val uploadTime = TimeUtils.timestampToFormat(receiveTimestamp)
-        var dataValue: Float = 0f
-        var dataValue2 : Float = 0f
+        var dataValue = 0f
+        var dataValue2 = 0f
         when(curTypeData){  //默认大端模式了，不是的话再改
             "01" ->{ //心率 -12位
                 val high4bits = rawData[0].toInt() and 0x0f
@@ -312,17 +324,6 @@ class BluetoothService : Service() {
             data = dataCacheQueue.poll()
         }
         if (batchData.isEmpty()) return
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                dataRepository.saveBatchData(batchData)
-            } catch (e: Exception) {
-                Log.e(TAG, "存库失败：${e.message}")
-                // 失败重试：重新入队
-                dataCacheQueue.addAll(batchData)
-                delay(1000)
-                launch { dataRepository.saveBatchData(batchData) }
-            }
-        }
         curBatchData = batchData
         sendStateBroadcast("BATCH_DATA_VALID",-1)
     }
