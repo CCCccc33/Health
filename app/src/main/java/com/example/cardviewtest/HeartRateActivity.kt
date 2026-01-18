@@ -458,7 +458,7 @@ class HeartRateActivity : AppCompatActivity() {
         }
         //这是啥
         val dataSet = barChart.data?.getDataSetByIndex(0) as? BarDataSet ?: BarDataSet(barEntries1, "${type}统计").apply {
-            color = Color.BLUE
+            color = Color.parseColor("#D9534F")
             barBorderWidth = 0f
             setDrawValues(false)
         }
