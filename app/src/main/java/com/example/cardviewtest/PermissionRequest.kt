@@ -94,7 +94,12 @@ PermissionRequest: Activity() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     // Android 12+：扫描 + 连接
                     arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT,
-                        Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                        Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION,
+
+                        Manifest.permission.READ_EXTERNAL_STORAGE,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        Manifest.permission.ACCESS_WIFI_STATE,
+                        Manifest.permission.INTERNET)
                 } else {
                     // Android 12 以下：蓝牙 + 位置
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N){

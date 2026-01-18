@@ -42,6 +42,8 @@ class MainActivity : AppCompatActivity() {
         recyclerView.layoutManager = layoutManager
         val adapter = FruitAdapter(this,fruitList)
         recyclerView.adapter = adapter
+        val autoUpdater = AutoUpdater(this)
+        autoUpdater.CheckUpdate()
     }
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {

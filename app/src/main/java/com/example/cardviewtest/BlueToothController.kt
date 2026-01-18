@@ -38,7 +38,6 @@ object BlueToothController {
     private var onBleConnectListener:OnBleConnectListener? = null  //连接监听
     private var curConnDevice: BluetoothDevice ? = null
     private var mScanner: BluetoothLeScanner? = null
-    private val conversion = Conversion()
     val deviceList = mutableListOf<BluetoothDevice>()
     //状态
     private var isConnected: Boolean = false
@@ -216,15 +215,14 @@ object BlueToothController {
                 return
             }
             val msg = characteristic.value  //存疑？？？？
-            val msgHex = conversion.bytes2HexString(msg,msg.size)
             when(status){
                 BluetoothGatt.GATT_SUCCESS ->{
-                    Log.w("bluetoothConnect","读取成功：$msgHex")
+                    Log.w("bluetoothConnect","读取成功：${msg.toHexString()}")
 //                    onBleConnectListener?.onReceiveMessage(gatt,gatt?.device,characteristic,
 //                        msg)
                 }
                 BluetoothGatt.GATT_FAILURE -> {
-                    Log.w("bluetoothConnect","读取失败：$msgHex,statue:$status")
+                    Log.w("bluetoothConnect","读取失败：${msg.toHexString()},statue:$status")
                     onBleConnectListener?.onReceiveError(status)
                 }
                 BluetoothGatt.GATT_WRITE_NOT_PERMITTED ->{
