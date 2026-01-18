@@ -199,9 +199,7 @@ object BlueToothController {
                     it.onServiceDiscoverySucceed(gatt,gatt?.device,status)
                 }
             }else{
-                onBleConnectListener?.let {
-                    it.onServiceDiscoveryFailed(gatt,gatt?.device,"获取服务特征异常")
-                }
+                onBleConnectListener?.onServiceDiscoveryFailed(gatt,gatt?.device,"获取服务特征异常")
             }
 
         }
@@ -247,17 +245,16 @@ object BlueToothController {
                 return
             }
             val msg = characteristic.value  //存疑？？？？
-            val msgHex = conversion.bytes2HexString(msg,msg.size)
             when(status){
                 BluetoothGatt.GATT_SUCCESS ->{
-                    Log.w("bluetoothConnect","写入成功：$msgHex")
+                    Log.w("bluetoothConnect","写入成功：${msg.toHexString()}")
                     onBleConnectListener?.let {
                         it.onWriteSuccess(gatt,gatt?.device,characteristic,
-                            msgHex)
+                            msg.toHexString())
                     }
                 }
                 BluetoothGatt.GATT_FAILURE -> {
-                    Log.w("bluetoothConnect","写入失败：$msgHex")
+                    Log.w("bluetoothConnect","写入失败：${msg.toHexString()}")
                     onBleConnectListener?.let {
                         it.onWriteFailure(gatt,gatt?.device,characteristic,
                             characteristic?.value,"写入失败")
@@ -276,11 +273,10 @@ object BlueToothController {
             super.onCharacteristicChanged(gatt, characteristic)
             val bytes: ByteArray? = characteristic?.value
             bytes?.let {
-                val hexStr = conversion.bytes2HexString(it,it.size)
-                Log.w("bluetoothConnect","收到数据：${hexStr}")
-            }
-            onBleConnectListener?.let {
-                it.onReceiveMessage(gatt,gatt?.device,characteristic,characteristic?.value)
+                Log.w("bluetoothConnect","收到数据：${bytes.toHexString()},长度:${bytes.size}")
+//                Log.w("bluetoothConnect","onBleConnectListener 是否为空：${onBleConnectListener == null}")
+                onBleConnectListener?.onReceiveMessage(gatt,gatt?.device,characteristic,bytes)
+
             }
         }
 
@@ -296,6 +292,13 @@ object BlueToothController {
                     onBleConnectListener?.let { it.onMTUSetFailure(mtu - 3) }
                 }
             }
+        }
+    }
+
+    fun ByteArray.toHexString(separator: String = " "): String {
+        return this.joinToString(separator) { byte ->
+            // %02X：将字节转为两位大写十六进制，不足两位补0；%02x为小写
+            String.format("%02X", byte)
         }
     }
 

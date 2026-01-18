@@ -14,22 +14,24 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import java.nio.ByteBuffer
-import java.util.Collections
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicInteger
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import com.motionapps.kotlin_ecg_detectors.Detectors
+import kotlin.collections.contentToString
 
 class BluetoothService : Service() {
-    private val conversion = Conversion()
     var curPosition : Int = 0
-    var curBatchData = mutableListOf<HealthData>()
+    var curBatchData = mutableListOf<Float>()
+    var heartRateData: Double = 0.0
+
     companion object {
         const val TAG = "BluetoothService"
         const val ACTION_DATA_AVAILABLE = "com.example.bluetooth.ACTION_DATA_AVAILABLE"
         const val ACTION_BLE_STATE = "com.example.bluetooth.ACTION_BLE_CONNECT_STATE"
-        private const val BATCH_SIZE = 200 // 缓存达到 50 条数据，集中发送广播
-        private const val MAX_DELAY = 1000L // 兜底：1s 内没凑够 15 条，也集中发送（避免数据积压）
+        const val SAMPLE_RATE = 1000.0
+        private const val BATCH_SIZE = 400 // 缓存达到 200 条数据，集中发送广播
         const val STATE_CONNECT_SUCCESS = 10    // 连接成功
         const val STATE_CONNECT_FAILURE = 11    // 连接失败
         const val STATE_DISCONNECT_SUCCESS = 12 // 断开成功
@@ -40,7 +42,8 @@ class BluetoothService : Service() {
         const val EXTRA_DEVICE_POSITION = "extra_device_position" // 设备地址（用于更新列表）
     }
     //******数据缓存****//
-    private val dataCacheQueue = ConcurrentLinkedQueue<HealthData>()  // 接收buffer
+    private val ecgData = mutableListOf<Double>()
+    private val dataCacheQueue = ConcurrentLinkedQueue<Float>()  // 接收buffer
     private val dataRepository by lazy { HealthDataRepository(applicationContext) }
 
     private val btController = BlueToothController
@@ -48,21 +51,8 @@ class BluetoothService : Service() {
     private var curTypeData = ""//当前接收数据类型
     @Volatile
     private var isReceive = false //是否开始接收
-    val batchHandler = Handler(Looper.getMainLooper())
 
-    override fun onCreate() {
-        super.onCreate()
-        if ((curTypeData == "01") and isReceive)
-            batchHandler.postDelayed(batchRunnable,MAX_DELAY)
-    }
-    private val batchRunnable= object :Runnable{
-        override fun run() {
-            if (dataCacheQueue.isNotEmpty()){
-                sendStateBroadcast("BATCH_DATA_VALID",-1)
-            }
-            batchHandler.postDelayed(this,MAX_DELAY)
-        }
-    }
+    val batchHandler = Handler(Looper.getMainLooper())
 
     private val localBroadcastManager = LocalBroadcastManager.getInstance(this)
     private fun sendStateBroadcast(action: String, state: Int, position: Int? = null) {
@@ -96,6 +86,10 @@ class BluetoothService : Service() {
             )
         }
 
+        fun setOnBleConnectListener(){
+            btController.setOnBleConnectListener(onBleConnectListener)
+        }
+
         fun disconnectDevice(){
             btController.setOnBleConnectListener(onBleConnectListener)
             btController.disConnectDevice()
@@ -107,16 +101,16 @@ class BluetoothService : Service() {
         fun setReceive(){
             isReceive = true
         }
-        fun getBatchData(): List<HealthData> {
+        fun getBatchData(): List<Float> {
             return curBatchData
+        }
+        fun getHeartRataData(): Double{
+            return heartRateData
         }
 
         //*****清理缓存******//
         fun clear(){
             isReceive = false
-            if (btController.bluetoothState()){
-                btController.sendMessage(conversion.hexString2Bytes("FF"))
-            }
             dataCacheQueue.clear()
             synchronized(this) {
                 curBatchData?.clear()
@@ -202,33 +196,9 @@ class BluetoothService : Service() {
             if (isReceive){
                 bytes?.let {
                     val dataList = parseRawData(bytes) //解析接收数据
-                    if (curTypeData == "01"){  //心率单独处理
-                        //心率的写数据库待定，不知道是帧格式还是activity计算
-                        dataCacheQueue.addAll(dataList)
-                        if (dataCacheQueue.size>=BATCH_SIZE){
-                            processBatchData()
-                        }
-                    }else{
-                        CoroutineScope(Dispatchers.IO).launch {
-                            try {
-                                dataRepository.saveBatchData(dataList)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "存库失败：${e.message}")
-                                // 失败重试：重新入队
-                                dataCacheQueue.addAll(dataList)
-                                delay(1000)
-                                launch { dataRepository.saveBatchData(dataList) }
-                            }
-                        }//这里不对，不是都写入数据库，而是写结果
-                        val curData = dataList.firstOrNull()  // 想一下怎么送出去
-                        val newDataList = ArrayList<HealthData>()
-                        if (curData != null) {
-                            newDataList.add(curData) // 单个对象加入集合
-                        }
-                        val intent = Intent(ACTION_DATA_AVAILABLE)
-                        intent.putParcelableArrayListExtra(EXTRA_SINGLE_DATA,newDataList)
-                        localBroadcastManager.sendBroadcast(intent) // 发送广播
-
+                    if (curTypeData != "06"){
+                        dataList?:return
+                        saveData(dataList)
                     }
                 }
             }
@@ -244,7 +214,9 @@ class BluetoothService : Service() {
             characteristic: BluetoothGattCharacteristic?,
             bytes: String
         ) {
-            curTypeData = bytes
+            val hexSegments = bytes.split(" ")
+            val targetHex = hexSegments[1]
+            curTypeData = targetHex
             Log.d(TAG, "onWriteSuccess")
         }
 
@@ -267,41 +239,61 @@ class BluetoothService : Service() {
         }
     }
     // 解析原始BLE数据
-    private fun parseRawData(rawData: ByteArray): List<HealthData> {
-        val dataList = mutableListOf<HealthData>()
+    private fun parseRawData(rawData: ByteArray): HealthData? {
         val receiveTimestamp = TimeUtils.getCurrentTimestamp()
         val timeFields = TimeUtils.parseTimeFields(receiveTimestamp)
         val uploadTime = TimeUtils.timestampToFormat(receiveTimestamp)
         var dataValue = 0f
         var dataValue2 = 0f
+        var dataValue3 = 0f
         when(curTypeData){  //默认大端模式了，不是的话再改
-            "01" ->{ //心率 -12位
-                val high4bits = rawData[0].toInt() and 0x0f
-                val low8bits = rawData[1].toInt() and 0xff
-                dataValue = ((high4bits shl 8) or low8bits).toFloat()
+            "06" ->{ //心率 -12位
+                var twoBytes : ByteArray
+                for (i in rawData.indices step 4) {
+                    val currentFrame = rawData.copyOfRange(i, i + 4)
+                    twoBytes = currentFrame.copyOfRange(2, 4) // 从索引2开始，到索引4结束（不包含4，即取2、3索引）
+                    val byteArray = byteArrayOf(twoBytes[0],twoBytes[1])
+                    val data = twoBytesBigEndianToInt(byteArray,true)
+                    dataValue = data.toFloat()
+                    dataCacheQueue.add(dataValue)
+                    ecgData.add(dataValue.toDouble())
+                }
+                if (dataCacheQueue.size>=BATCH_SIZE){ processBatchData() }
+                if (ecgData.size >= 3000){
+                    val doubleArray: DoubleArray = ecgData.toDoubleArray() // 最终转为DoubleArray
+                    ecgDetect(doubleArray)
+                    ecgData.clear()
+                }
+
             }
             "02" ->{  //体温 -两字节：整数部分和小数部分
-                val objInt = rawData[0].toInt()
-                val objDec = rawData[1].toInt()
-                dataValue = objInt + objDec.toFloat()/100f    //注意：送来的数的小数要是俩位的
+                val intPart = rawData[2].toInt()
+                val decimalPart = rawData[4].toInt()
+                val decimalFloat = decimalPart.toFloat() / 100
+                dataValue = intPart.toFloat() + decimalFloat
             }
-            "03" ->{  //血压
-                val sbp = rawData[0].toInt()  //收缩压
-                val dbp = rawData[1].toInt()  //舒张压
-                dataValue = sbp.toFloat()
-                dataValue2 = dbp.toFloat()
+            "04" ->{  //血压
+                dataValue = rawData[2].toFloat()  //收缩压
+                dataValue2 = rawData[3].toFloat()   //舒张压
             }
-            "04" ->{  //血氧
+            "01" ->{  //血氧
+                dataValue = rawData[2].toFloat()
+            }
+            "03" ->{  //肺活量
+                val byteArray = byteArrayOf(rawData[2],rawData[3])
+                val data = twoBytesBigEndianToInt(byteArray,true)
+                dataValue = data.toFloat()
 
             }
-            "05" ->{  //肺活量
-
-            }
-            "06" ->{  //皮肤状态
-
+            "05" ->{  //皮肤状态
+                dataValue = rawData[2].toFloat()  //皮肤水分
+                dataValue2 = rawData[3].toFloat()  //皮肤油分
+                dataValue3 = rawData[4].toFloat()  //皮肤弹性
             }
         }
-        dataList.add(HealthData(
+        Log.d("parseRawData","curTypeData:${curTypeData},dataValue:${dataValue},dataValue2:${dataValue2},dataValue3:${dataValue3}")
+        return if(curTypeData == "06") null
+        else HealthData(
             year = timeFields.year,
             month = timeFields.month,
             week = timeFields.week,
@@ -310,22 +302,113 @@ class BluetoothService : Service() {
             dataType = curTypeData,
             value1=dataValue,
             value2 = dataValue2,
-            value3 = null))
-        return dataList
+            value3 = dataValue3)
     }
 
     // 处理批量数据：存库 + 广播
     private fun processBatchData() {
-        // 拷贝并清空Buffer
-        val batchData = mutableListOf<HealthData>()
-        var data: HealthData? = dataCacheQueue.poll()
+        val dataList = mutableListOf<Float>()
+        var data: Float? = dataCacheQueue.poll()
         while (data != null) {
-            batchData.add(data)
+            dataList.add(data)
             data = dataCacheQueue.poll()
         }
-        if (batchData.isEmpty()) return
-        curBatchData = batchData
+        if (dataList.isEmpty()) return
+        curBatchData = dataList
         sendStateBroadcast("BATCH_DATA_VALID",-1)
     }
 
+    /**
+    * 脉搏信号处理
+    * */
+    fun ecgDetect(data: DoubleArray){
+        val detectors = Detectors(SAMPLE_RATE)
+        val rWave = detectors.panTompkinsDetector(data)
+        val rWaveIndices: List<Int> = detectors.panTompkinsDetector(data).toList()
+        Log.d("bpm","R波:${rWave.contentToString()}")
+        Log.d("rWaveIndices","rWaveIndices:$rWaveIndices")
+        val validRWaveIndices = rWaveIndices.filter { it < data.size }
+        if (validRWaveIndices.size < 2) { // 至少2个R波才能计算RR间期
+            Log.w("bpm", "有效R波数量不足，无法计算心率")
+            heartRateData = 0.0
+            return
+        }
+
+        val rrIntervalsSample: List<Int> = validRWaveIndices
+            .windowed(2, 1)
+            .map { it[1] - it[0] }
+            .filter { it > 0 && it < SAMPLE_RATE * 2 } // 过滤异常间期（<0 或 >2秒，排除干扰）
+
+        val rrIntervalsSec: List<Double> = rrIntervalsSample
+            .map { it / SAMPLE_RATE }
+
+        // 修复3：正确计算平均心率（心跳数 = RR间期数）
+        val averageHeartRate: Double = if (rrIntervalsSec.isNotEmpty()) {
+            val totalTimeSec = rrIntervalsSec.sum()
+            val averageRRInterval = totalTimeSec / rrIntervalsSec.size // 平均RR间期（秒/次）
+            60.0 / averageRRInterval // 心率 = 60 / 平均RR间期
+        } else {
+            0.0
+        }
+
+        heartRateData = if (averageHeartRate in 30.0..200.0) {
+            averageHeartRate
+        } else {
+            Log.w("bpm", "心率超出生理范围：$averageHeartRate")
+            0.0
+        }
+
+        val formattedAverageHR = String.format("%.1f", heartRateData)
+        Log.d("bpm","平均心率（bpm）：$formattedAverageHR")
+
+        val receiveTimestamp = TimeUtils.getCurrentTimestamp()
+        val timeFields = TimeUtils.parseTimeFields(receiveTimestamp)
+        val uploadTime = TimeUtils.timestampToFormat(receiveTimestamp)
+        val HRData = HealthData(
+            year = timeFields.year,
+            month = timeFields.month,
+            week = timeFields.week,
+            day = timeFields.day,
+            uploadTime = uploadTime,
+            dataType = curTypeData,
+            value1= heartRateData.toFloat(),
+            value2 = null,
+            value3 = null)
+        saveData(HRData)
+    }
+
+    fun twoBytesBigEndianToInt(byteArray: ByteArray, isUnsigned: Boolean = false): Int {
+        require(byteArray.size == 2) { "转换2字节Int需要长度为2的ByteArray，当前长度：${byteArray.size}" }
+        val byteBuffer = ByteBuffer.wrap(byteArray)
+            .order(ByteOrder.BIG_ENDIAN)
+        val signedShort = byteBuffer.short
+        return if (isUnsigned) {
+            signedShort.toInt() and 0xFFFF
+        } else {
+            signedShort.toInt()
+        }
+    }
+
+
+
+    fun saveData(dataList:HealthData){
+        CoroutineScope(Dispatchers.IO).launch {
+            var saveSuccess = false
+            try {
+                dataRepository.saveBatchData(dataList)
+                Log.d(TAG,"dataList.value1:${dataList.value1}")
+                saveSuccess = true
+            } catch (e: Exception) {
+                Log.e(TAG, "存库失败：${e.message}")
+                delay(1000)
+                launch { dataRepository.saveBatchData(dataList) }
+            }
+            if (saveSuccess and (curTypeData != "06")) {
+                val intent = Intent(ACTION_DATA_AVAILABLE)
+                intent.putExtra(EXTRA_SINGLE_DATA, dataList.value1?.toInt())    // 传入状态码
+                localBroadcastManager.sendBroadcast(intent) // 发送广播
+            }
+        }
+
+    }
 }

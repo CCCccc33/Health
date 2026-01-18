@@ -13,35 +13,35 @@ import androidx.room.Transaction
 @Dao
 interface HealthDataDao{
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertBatch(dataList: List<HealthData>)
+    suspend fun insertBatch(dataList: HealthData)
     // 事务封装（批量插入提速3-5倍）
     @Transaction
-    suspend fun insertBatchInTransaction(dataList: List<HealthData>) = insertBatch(dataList)
+    suspend fun insertBatchInTransaction(dataList: HealthData) = insertBatch(dataList)
 
-    @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month AND day = :day")
-    suspend fun getByDate(year: Int, month: Int, day: Int): List<HealthData>
+    @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month AND day = :day AND dataType = :dataType")
+    suspend fun getByDate(year: Int, month: Int, day: Int, dataType: String): List<HealthData>
 
-    @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month")
-    suspend fun getByMonth(year: Int, month: Int): List<HealthData>
+    @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month AND dataType = :dataType")
+    suspend fun getByMonth(year: Int, month: Int, dataType: String): List<HealthData>
 
-    @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month AND week = :week")
-    suspend fun getByWeek(year: Int, month: Int, week:Int): List<HealthData>
+    @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month AND week = :week AND dataType = :dataType")
+    suspend fun getByWeek(year: Int, month: Int, week:Int, dataType: String): List<HealthData>
 }
 
 class HealthDataRepository(context: Context) {
     private val dao = DataBase.getInstance(context).healthDataDao()
     // 对外暴露的批量存储方法
-    suspend fun saveBatchData(dataList: List<HealthData>) {
+    suspend fun saveBatchData(dataList: HealthData) {
         dao.insertBatchInTransaction(dataList)
     }
-    suspend fun getHealthDataByDate(year: Int, month: Int, day: Int): List<HealthData> {
-        return dao.getByDate(year, month, day)
+    suspend fun getHealthDataByDate(year: Int, month: Int, day: Int, dataType: String): List<HealthData> {
+        return dao.getByDate(year, month, day, dataType)
     }
-    suspend fun getHealthDataByMonth(year: Int, month: Int): List<HealthData> {
-        return dao.getByMonth(year, month)
+    suspend fun getHealthDataByMonth(year: Int, month: Int, dataType: String): List<HealthData> {
+        return dao.getByMonth(year, month, dataType)
     }
-    suspend fun getHealthDataByWeek(year: Int, month: Int,week:Int): List<HealthData> {
-        return dao.getByWeek(year, month,week)
+    suspend fun getHealthDataByWeek(year: Int, month: Int,week:Int, dataType: String): List<HealthData> {
+        return dao.getByWeek(year, month,week, dataType)
     }
 }
 

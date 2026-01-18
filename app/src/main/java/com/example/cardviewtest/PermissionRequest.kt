@@ -9,7 +9,8 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
-class PermissionRequest: Activity() {
+class
+PermissionRequest: Activity() {
     companion object{
         const val TAG = "PermissionRequest"
         const val REQUEST_PERMISSION_CODE = 1

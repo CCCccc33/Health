@@ -34,6 +34,14 @@ android {
     kotlinOptions {
         jvmTarget = '11'
     }
+
+    packagingOptions {
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE.md'
+        exclude 'META-INF/LICENSE-notice.md'
+
+    }
+
 }
 
 dependencies {
@@ -46,10 +54,12 @@ dependencies {
     implementation libs.androidx.constraintlayout.v221
     implementation libs.androidx.room.runtime
     kapt libs.androidx.room.compiler
-    implementation libs.material
     implementation libs.mpandroidchart
     implementation libs.support.v4
     implementation libs.androidx.swiperefreshlayout
+    implementation('com.github.Foxpace:Kotlin-Ecg-Detectors:0.0.4') {
+        exclude group: 'org.apache.maven.surefire', module: 'common-java5'
+    }
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.6.2"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4"
     implementation 'com.github.bumptech.glide:glide:5.0.5'

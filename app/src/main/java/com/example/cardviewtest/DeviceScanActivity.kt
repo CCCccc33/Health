@@ -309,6 +309,7 @@ class DeviceScanActivity : AppCompatActivity() {
                         Toast.makeText(this, "服务未连接，请稍后重试", Toast.LENGTH_SHORT).show()
                         return@DeviceAdapter
                     }
+                    bluetoothBinder.setOnBleConnectListener()
                     bluetoothBinder.connectDevice(READ_UUID,WRITE_UUID,SERVICE_UUID,curDevice,position)
                 }
                 CONNECT_END ->{

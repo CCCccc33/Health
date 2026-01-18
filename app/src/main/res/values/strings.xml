@@ -2,4 +2,19 @@
     <string name="app_name">Health</string>
     <!-- TODO: Remove or change this placeholder text -->
     <string name="hello_blank_fragment">Hello blank fragment</string>
+
+    <string name="know_heart_rate">心率</string>
+    <string name="know_heart_rate_content">心率是指心脏每分钟跳动的次数，成年人安静状态下的心率一般为 55~80 次每分钟，其通常会因年龄、性别或其他生理因素产生个体差异。运动时心跳会加速，心肺功能较好的运动员心率通常会比普通成年人的心跳要慢。</string>
+    <string name="know_heart_rate_range"><![CDATA[
+    心率区间
+    各个心率区间的时间长度，来自日常心率数据的分布
+    ·心率值为最大心率的50%-60%为热身区间，该区间适用于正式热身
+    ·心率值为最大心率的61%-70%为燃脂区间，在此区间身体主要通过燃烧脂肪的方式为运动供能，能有效减少脂肪或控制体脂率
+    ·心率值为最大心率的71%-80%为有氧区间，在此区间碳水化合物为主要的供能物质，能有效锻炼心肺功能。
+    ·心率值为最大心率的81%-90%为无氧区间，在此区间乳酸堆积量增加，用于训练身体提高乳酸耐受性。
+    ·心率值为最大心率的91%及以上为极限区间，在此区间心脏负担很大，锻炼绝对速度能力，适用于有丰富经验的训练者。
+    另，低于最大心率的50%的数据不在“心率区间”中统计和展示。]]></string>
+
+    <string name="know_temperature">体温</string>
+
 </resources>
