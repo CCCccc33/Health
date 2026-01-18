@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.LayoutInflater
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -36,7 +37,7 @@ import javax.net.ssl.TrustManager
  */
 class AutoUpdater(private val mContext: Context) {
     // 下载安装包的网络路径
-    private var apkUrl = "https://gitee.com/CCCccc333/Health/tree/main/app/release/"
+    private var apkUrl = "https://gitee.com/CCCccc333/Health/raw/main/app/release/"
     private val checkUrl = apkUrl + "output-metadata.json"
 
     // 保存APK的文件名
@@ -158,10 +159,12 @@ class AutoUpdater(private val mContext: Context) {
 
             // 版本对比（转为 Long 避免字符串对比误差）
             try {
-                localVersion?:return@Thread
-                val localVer = localVersion.toLong()
-                val remoteVer = versionName.toLong()
-                if (localVer < remoteVer) {
+                if (localVersion == null){
+                    Log.d("Version","Version为空")
+                    return@Thread
+                }
+                Log.d("Version","localVersion:${localVersion},remoteVer:${versionName}")
+                if (isVersionNewer(localVersion, versionName)) {
                     apkUrl += outputFile
                     mHandler.sendEmptyMessage(SHOWDOWN)
                 }
@@ -169,6 +172,31 @@ class AutoUpdater(private val mContext: Context) {
                 e.printStackTrace()
             }
         }.start()
+    }
+
+    /**
+     * 分段版本对比工具方法（核心：判断 最新版本 > 本地版本）
+     * @param localVersion 本地版本号（如 "1.0"）
+     * @param remoteVersion 远程最新版本号（如 "2.0"）
+     * @return true 表示有更新，false 表示当前是最新版本
+     */
+    private fun isVersionNewer(localVersion: String, remoteVersion: String): Boolean {
+        // 分割版本号（按 "." 分割，过滤无法转换为数字的片段）
+        val localParts = localVersion.split(".").mapNotNull { it.toIntOrNull() }
+        val remoteParts = remoteVersion.split(".").mapNotNull { it.toIntOrNull() }
+
+        // 逐段对比版本号（长度不一致时，缺失片段按 0 处理）
+        val maxLength = maxOf(localParts.size, remoteParts.size)
+        for (i in 0 until maxLength) {
+            val localPart = if (i < localParts.size) localParts[i] else 0
+            val remotePart = if (i < remoteParts.size) remoteParts[i] else 0
+
+            when {
+                remotePart > localPart -> return true // 远程版本更高，有更新
+                remotePart < localPart -> return false // 本地版本更高，无更新
+            }
+        }
+        return false // 版本号完全一致，无更新
     }
 
     /**

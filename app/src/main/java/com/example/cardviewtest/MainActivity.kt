@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
 import android.os.IBinder
+import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.Toast
@@ -44,6 +45,7 @@ class MainActivity : AppCompatActivity() {
         recyclerView.adapter = adapter
         val autoUpdater = AutoUpdater(this)
         autoUpdater.CheckUpdate()
+        Log.d("AutoUpdater","AutoUpdater")
     }
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
