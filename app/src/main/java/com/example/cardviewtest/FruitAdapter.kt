@@ -14,7 +14,7 @@ import android.widget.Toast
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 
-class Fruit(val name: String, val description: String,val imageId: Int,val data: String) {
+class Fruit(val name: String, val description: String,val imageId: Int,var data: String) {
 
 }
 class FruitAdapter(val context: Context,val fruitList: List<Fruit>) :
@@ -59,4 +59,13 @@ class FruitAdapter(val context: Context,val fruitList: List<Fruit>) :
     }
 
     override fun getItemCount(): Int = fruitList.size
+
+
+    fun updateFruitValue(name: String, newValue: String) {
+        val index = fruitList.indexOfFirst { it.name == name }
+        if (index != -1) {
+            fruitList[index].data = newValue
+            notifyItemChanged(index) // 局部刷新，性能更优
+        }
+    }
     }

@@ -58,6 +58,7 @@ class DeviceScanActivity : AppCompatActivity() {
         const val WRITE_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"  //写特征
         const val ACTION_BLE_STATE = "com.example.bluetooth.ACTION_BLE_CONNECT_STATE"
     }
+    private var isInit = true
     private var deniedPermissionList  = mutableListOf<String>()
     var btController: BlueToothController = BlueToothController
     private lateinit var deviceAdapter: DeviceAdapter
@@ -221,9 +222,8 @@ class DeviceScanActivity : AppCompatActivity() {
         startService(intent)
         bindService(intent,connect,Context.BIND_AUTO_CREATE)
         createDeviceCardView(this)
-        bluetoothInit()
-        initBluetoothReceiver()
         initPermissions()
+        initBluetoothReceiver()
         swipeRefreshScanDevice.setOnRefreshListener {
             refreshDevices(swipeRefreshScanDevice)
         }
@@ -244,6 +244,7 @@ class DeviceScanActivity : AppCompatActivity() {
     }
     private fun initPermissions(){
         val permissions = permissionRequest.getRequiredPermissions(BluetoothAction.INIT)
+        Log.d("PERMISSION","BluetoothAction.INIT")
         requestRuntimePermission(this,permissions)
     }
 
@@ -264,9 +265,8 @@ class DeviceScanActivity : AppCompatActivity() {
 
     fun searchDevice(){
         val permission = permissionRequest.getRequiredPermissions(BluetoothAction.SCAN)
-        requestRuntimePermission(this,permission)
-        if (deniedPermissionList.size>0){
-            Toast.makeText(this,"${deniedPermissionList}权限被拒绝，部分功能可能无法使用！", Toast.LENGTH_SHORT).show()
+        if (deniedPermissionList.isNotEmpty()){
+            requestRuntimePermission(this,permission)
             return
         }
         if (btController.isDiscovery()){
@@ -289,9 +289,8 @@ class DeviceScanActivity : AppCompatActivity() {
             when(action){
                 CONNECT_START ->{
                     val permissions = permissionRequest.getRequiredPermissions(BluetoothAction.SCAN)
-                    requestRuntimePermission(this,permissions)
-                    if (deniedPermissionList.size>0){
-                        Toast.makeText(this,"${deniedPermissionList}权限被拒绝，部分功能可能无法使用！", Toast.LENGTH_SHORT).show()
+                    if (deniedPermissionList.isNotEmpty()){
+                        requestRuntimePermission(this,permissions)
                         return@DeviceAdapter
                     }
                     btController.stopDiscoveryDevices()
@@ -300,9 +299,8 @@ class DeviceScanActivity : AppCompatActivity() {
                     startMsg.what = SELECT_DEVICE
                     handler.sendMessage(startMsg)
                     val permission = permissionRequest.getRequiredPermissions(BluetoothAction.CONNECT)
-                    requestRuntimePermission(this,permission)
-                    if (deniedPermissionList.size>0){
-                        Toast.makeText(this,"${deniedPermissionList}权限被拒绝，部分功能可能无法使用！", Toast.LENGTH_SHORT).show()
+                    if (deniedPermissionList.isNotEmpty()){
+                        requestRuntimePermission(this,permission)
                         return@DeviceAdapter
                     }
                     if (!isServiceConnected){
@@ -314,9 +312,8 @@ class DeviceScanActivity : AppCompatActivity() {
                 }
                 CONNECT_END ->{
                     val permission = permissionRequest.getRequiredPermissions(BluetoothAction.CONNECT)
-                    requestRuntimePermission(this,permission)
-                    if (deniedPermissionList.size>0){
-                        Toast.makeText(this,"${deniedPermissionList}权限被拒绝，部分功能可能无法使用！", Toast.LENGTH_SHORT).show()
+                    if (deniedPermissionList.isNotEmpty()){
+                        requestRuntimePermission(this,permission)
                         return@DeviceAdapter
                     }
                     if (!isServiceConnected) {
@@ -389,7 +386,7 @@ class DeviceScanActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_PERMISSION_CODE){
             if (grantResults.size>0){
-                val deniedPermissionList: MutableList<String> = mutableListOf()
+                deniedPermissionList.clear()
                 for (i in 0 until grantResults.size){
                     val permission = permissions[i]
                     val grantResult = grantResults[i]
@@ -402,7 +399,14 @@ class DeviceScanActivity : AppCompatActivity() {
                     }
                 }
                 if (deniedPermissionList.isEmpty()){
-                    Log.d(PermissionRequest.Companion.TAG,"权限都授予了")
+                    Log.d("onRequestPermissionsResult","权限都授予了")
+                    if (isInit){
+                        runOnUiThread {
+                            bluetoothInit()
+                            deviceAdapter.notifyDataSetChanged()
+                        }
+                        isInit = false
+                    }
                 }else{
                     Toast.makeText(this,"${deniedPermissionList}权限被拒绝，部分功能可能无法使用！",
                         Toast.LENGTH_SHORT).show()
@@ -414,19 +418,23 @@ class DeviceScanActivity : AppCompatActivity() {
     }
 
     fun requestRuntimePermission(context: Context,permissions: Array<String>){
-        val permissionList: MutableList<String> = mutableListOf()
+        deniedPermissionList.clear()
         for (permission in permissions){
             if (ContextCompat.checkSelfPermission(context,permission)!= PackageManager.PERMISSION_GRANTED){
-                if (!permissionList.contains(permission)){
-                    permissionList.add(permission)
+                if (!deniedPermissionList.contains(permission)){
+                    deniedPermissionList.add(permission)
                 }
             }
         }
         val activity = context as Activity
-        if (!permissionList.isEmpty()){
-            ActivityCompat.requestPermissions(activity,permissionList.toTypedArray(),REQUEST_PERMISSION_CODE)
+        if (!deniedPermissionList.isEmpty()){
+            ActivityCompat.requestPermissions(activity,deniedPermissionList.toTypedArray(),REQUEST_PERMISSION_CODE)
         }else{
-            Log.d(PermissionRequest.Companion.TAG,"权限都授予了")
+            Log.d("requestRuntimePermission","权限都授予了")
+            runOnUiThread {
+                bluetoothInit()
+                deviceAdapter.notifyDataSetChanged()
+            }
         }
     }
 

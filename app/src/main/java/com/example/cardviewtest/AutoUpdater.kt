@@ -25,8 +25,10 @@ import java.net.HttpURLConnection
 import java.net.MalformedURLException
 import java.net.URL
 import java.security.SecureRandom
-import java.util.regex.Matcher
+import android.webkit.WebSettings
+import android.webkit.WebView
 import java.util.regex.Pattern
+import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
@@ -37,7 +39,7 @@ import javax.net.ssl.TrustManager
  */
 class AutoUpdater(private val mContext: Context) {
     // 下载安装包的网络路径
-    private var apkUrl = "https://gitee.com/CCCccc333/Health/raw/main/app/release/"
+    private var apkUrl = "https://gitee.com/CCCccc333/Health/releases/download/v1.0/"
     private val checkUrl = apkUrl + "output-metadata.json"
 
     // 保存APK的文件名
@@ -53,6 +55,7 @@ class AutoUpdater(private val mContext: Context) {
     // 进度条与通知UI刷新的handler和msg常量
     private var mProgress: ProgressBar? = null
     private var txtStatus: TextView? = null
+    private lateinit var systemUA : String
 
     // Handler 消息常量
     private val DOWN_UPDATE = 1
@@ -69,7 +72,12 @@ class AutoUpdater(private val mContext: Context) {
             }
             DOWN_OVER -> {
                 Toast.makeText(mContext, "下载完毕", Toast.LENGTH_SHORT).show()
-                installAPK()
+                try {
+                    installAPK()
+                }catch (e:Exception){
+                    e.printStackTrace()
+                }
+
             }
         }
         true
@@ -79,6 +87,23 @@ class AutoUpdater(private val mContext: Context) {
         // 初始化APK保存路径（对应 App 外部私有存储的 Download 目录）
         val downloadDir = mContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
         apkFile = File(downloadDir, saveFileName)
+        systemUA = getSystemUserAgent(mContext)
+    }
+
+    fun getSystemUserAgent(context: Context): String {
+        return try {
+            // 创建临时 WebView（无需显示，仅用于获取 UA）
+            val webView = WebView(context)
+            webView.settings.userAgentString ?: getDefaultUserAgent() // 兜底
+        } catch (e: Exception) {
+            // 异常时返回兜底 UA（适配无 WebView 环境）
+            getDefaultUserAgent()
+        }
+    }
+
+    // 兜底 UA（适配 Android 不同版本）
+    private fun getDefaultUserAgent(): String {
+        return WebSettings.getDefaultUserAgent(mContext)
     }
 
     /**
@@ -138,6 +163,7 @@ class AutoUpdater(private val mContext: Context) {
 
             var versionName = "1"
             var outputFile = ""
+            Log.d("URL","URL:$checkUrl")
             val config = doGet(checkUrl)
 
             if (!config.isNullOrEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -203,7 +229,14 @@ class AutoUpdater(private val mContext: Context) {
      * 从服务器下载APK安装包
      */
     fun DownloadApk() {
-        downLoadThread = Thread(DownApkWork)
+        downLoadThread = Thread {
+            try {
+                DownApkWork.run()
+            }catch (e: Exception){
+                e.printStackTrace()
+                Log.e("APK_DOWNLOAD_ERROR", "APK下载过程中出现异常", e)
+            }
+        }
         downLoadThread?.start()
     }
 
@@ -221,7 +254,17 @@ class AutoUpdater(private val mContext: Context) {
 
             url = URL(apkUrl)
             val conn = url.openConnection() as HttpURLConnection
+            if (conn is HttpsURLConnection) { // 仅对 HTTPS 连接生效，避免类型转换异常
+                conn.sslSocketFactory = ssf
+            }
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 10000
+            conn.readTimeout = 60000
+            // 携带桌面版 User-Agent 解决 403 问题（补充）
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            conn.setRequestProperty("Accept", "*/*")
             conn.connect()
+            Log.e("TAG_APK_DOWNLOAD", "请求失败，响应码：${conn.responseCode}，响应消息：${conn.responseMessage}")
             val length = conn.contentLength
             val ins = conn.inputStream
             val fos = FileOutputStream(apkFile)

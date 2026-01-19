@@ -26,10 +26,8 @@ PermissionRequest: Activity() {
             BluetoothAction.TURN_ON,
             BluetoothAction.TURN_OFF -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    // Android 12+：需要 BLUETOOTH_CONNECT 权限（官方明确要求）
                     arrayOf(Manifest.permission.BLUETOOTH_CONNECT,Manifest.permission.BLUETOOTH_SCAN)
                 } else {
-                    // Android 11及以下：无需运行时权限（通过系统Intent或API直接操作）
                     emptyArray()
                 }
             }
@@ -39,7 +37,7 @@ PermissionRequest: Activity() {
                     // Android 12+：仅需 BLUETOOTH_SCAN（若不推导位置，清单需加 neverForLocation）
                     arrayOf(Manifest.permission.BLUETOOTH_SCAN,
                         Manifest.permission.BLUETOOTH_CONNECT,
-                        Manifest.permission.ACCESS_COARSE_LOCATION)
+                        Manifest.permission.ACCESS_COARSE_LOCATION)  //
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     // Android 10-11：需要 BLUETOOTH_ADMIN + ACCESS_FINE_LOCATION + 可选后台定位
                     arrayOf(

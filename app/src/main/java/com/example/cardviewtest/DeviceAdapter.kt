@@ -55,9 +55,12 @@ class DeviceAdapter(val context: Context,val deviceList: List<Device>,
                 if (device.deviceState == "未连接"){
                     onDeviceClicked(CONNECT_START,position,mDeviceList[position])
                     Toast.makeText(context,"正在连接设备...", Toast.LENGTH_SHORT).show()
-                }else{
+                } else if (device.deviceState == "已连接")
+                {
                     onDeviceClicked(CONNECT_END,position,mDeviceList[position])
-                    Toast.makeText(context,"设备已断开", Toast.LENGTH_SHORT).show()
+//                    Toast.makeText(context,"设备已断开", Toast.LENGTH_SHORT).show()
+                }else{
+                    Toast.makeText(context,"请勿频繁点击，正在连接设备...", Toast.LENGTH_SHORT).show()
                 }
             }
         }

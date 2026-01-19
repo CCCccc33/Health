@@ -22,7 +22,7 @@ import androidx.core.content.ContextCompat
 
 object BlueToothController {
     private const val TAG = "BlueToothController"
-    const val MAX_CONNECT_TIME: Long = 100
+    const val MAX_CONNECT_TIME: Long = 3000
     private var mBluetoothGatt: BluetoothGatt? = null  //当前连接的Gatt
     //UUID
     private var serviceUUID: String? = null

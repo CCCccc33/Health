@@ -26,6 +26,9 @@ interface HealthDataDao{
 
     @Query("SELECT * FROM HealthData WHERE year = :year AND month = :month AND week = :week AND dataType = :dataType")
     suspend fun getByWeek(year: Int, month: Int, week:Int, dataType: String): List<HealthData>
+
+    @Query("SELECT * FROM healthdata WHERE dataType = :dataType ORDER BY uploadTime DESC LIMIT 1")
+    suspend fun getLatestDataByType(dataType: String): HealthData?
 }
 
 class HealthDataRepository(context: Context) {
@@ -42,6 +45,10 @@ class HealthDataRepository(context: Context) {
     }
     suspend fun getHealthDataByWeek(year: Int, month: Int,week:Int, dataType: String): List<HealthData> {
         return dao.getByWeek(year, month,week, dataType)
+    }
+
+    suspend fun getLatestHealthData(dataType: String): HealthData? {
+        return dao.getLatestDataByType(dataType)
     }
 }
 

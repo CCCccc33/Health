@@ -61,7 +61,7 @@ class HeartRateActivity : AppCompatActivity() {
         const val BUFFER_HIGH_THRESHOLD = 250  // 缓冲区积压阈值
         const val MAX_POINTS_PER_FRAME = 4    // 单帧最大点数
         const val MIN_POINTS_PER_FRAME = 2     // 单帧最小点数
-        const val EXTRA_SINGLE_DATA = "extra_single_data"
+        const val ACTION_DATA_UNAVAILABLE = "com.example.bluetooth.ACTION_DATA_UNAVAILABLE"
         const val ACTION_DATA_AVAILABLE = "com.example.bluetooth.ACTION_DATA_AVAILABLE"
         val DATA_RANGE_MAP = mapOf(
             "心率" to Pair(30f, 180f),       // 心率：0~180 bpm
@@ -158,6 +158,9 @@ class HeartRateActivity : AppCompatActivity() {
                             Log.e(TAG,"BluetoothAdapter.STATE_ON")
                         }
                     }
+                }
+                ACTION_DATA_UNAVAILABLE ->{
+                    Toast.makeText(context,"手部接触异常/信号波动过大，该批次数据无效，请保持接触稳定!", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -394,7 +397,7 @@ class HeartRateActivity : AppCompatActivity() {
                                 break
                             }
                         }
-                        if (typeData == "血压"){
+                        if ((typeData == "血压") || (typeData == "皮肤状态")){
                             for (entry in barEntries2) {
                                 if (entry.x.toInt() == xIndex) {
                                     value2 = entry.y
@@ -406,7 +409,7 @@ class HeartRateActivity : AppCompatActivity() {
 
                         Log.d(TAG, "维度：${typeData}，标签：$xLabel，数值：$value")
                         runOnUiThread {
-                            if (typeData == "血压"){
+                            if ((typeData == "血压") || (typeData == "皮肤状态")){
                                 selectData.setText("${String.format("%.1f",value)}/${String.format("%.1f",value2)}")
                             }else{
                                 selectData.setText("${String.format("%.1f", value)}")
@@ -417,7 +420,7 @@ class HeartRateActivity : AppCompatActivity() {
                 }
                 override fun onNothingSelected() {
                     runOnUiThread {
-                        if (typeData == "血压"){
+                        if ((typeData == "血压") || (typeData == "皮肤状态")){
                             selectData.setText("-/-")
                         }else{
                             selectData.setText("--")
@@ -456,16 +459,23 @@ class HeartRateActivity : AppCompatActivity() {
         if (barEntries2.isEmpty()){
                 addChartData(barEntries2,xAxisLabels.size)
         }
+        val label = if (typeData == "血压"){
+            "收缩压"
+        }else if (typeData == "皮肤状态"){
+            "含水量"
+        }else{ "$typeData" }
+
         //这是啥
-        val dataSet = barChart.data?.getDataSetByIndex(0) as? BarDataSet ?: BarDataSet(barEntries1, "${type}统计").apply {
+        val dataSet = barChart.data?.getDataSetByIndex(0) as? BarDataSet ?: BarDataSet(barEntries1, label).apply {
             color = Color.parseColor("#D9534F")
             barBorderWidth = 0f
             setDrawValues(false)
         }
         dataSet.values = barEntries1
 
-        if (typeData == "血压"){
-            val dataSet2 = barChart.data?.getDataSetByIndex(1) as? BarDataSet ?: BarDataSet(barEntries2, "舒张压").apply {
+        if ((typeData == "血压") || (typeData == "皮肤状态")){
+            val dataSet2 = barChart.data?.getDataSetByIndex(1) as? BarDataSet ?: BarDataSet(barEntries2, if(typeData == "血压") {
+                "舒张压" }else{"含油量"} ).apply {
                 color = Color.parseColor("#FF9800")
                 barBorderWidth = 0f
                 setDrawValues(false)
@@ -528,7 +538,7 @@ class HeartRateActivity : AppCompatActivity() {
                     chartEntries.clear()
                     Log.d(TAG,"drawBuffer:${drawBuffer}")
                 }
-                if (typeData == "血压"){
+                if ((typeData == "血压") || (typeData == "皮肤状态")){
                     selectData.setText("-/-")
                 }else{ selectData.setText("--") }
                 analyzeContent.setText("")
@@ -590,7 +600,7 @@ class HeartRateActivity : AppCompatActivity() {
                 typeCode = "04"
             }
             "皮肤状态" ->{
-                selectData.setText("--")
+                selectData.setText("-/-")
                 dataUnit.setText("")
                 typeCode = "05"
             }
@@ -638,7 +648,7 @@ class HeartRateActivity : AppCompatActivity() {
                 }
 
                 getAverageData(healthDataList, 1, barEntries1, typeChoose)
-                if (typeData == "血压") {
+                if ((typeData == "血压") || (typeData == "皮肤状态")) {
                     getAverageData(healthDataList, 2, barEntries2, typeChoose)
                 }
             } catch (e: Exception) {
@@ -708,10 +718,7 @@ class HeartRateActivity : AppCompatActivity() {
             else -> 99f // 异常情况返回空字符串
         }
     }
-    fun clearChartData(){
-        barEntries1.clear()
-        barEntries2.clear()
-    }
+
     //****************数据库取数**************************//
 
     ///*********************画点********************//
