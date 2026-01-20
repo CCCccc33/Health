@@ -255,6 +255,7 @@ class BluetoothService : Service() {
         val uploadTime = TimeUtils.timestampToFormat(receiveTimestamp)
         var dataValue = 0f
         var dataValue2 = 0f
+        var dataValue3 = 0f
         when(curTypeData){  //默认大端模式了，不是的话再改
             "06" ->{ //心率 -12位
                 var twoBytes : ByteArray
@@ -299,6 +300,7 @@ class BluetoothService : Service() {
             "05" ->{  //皮肤状态
                 dataValue = rawData[2].toFloat()  //皮肤水分
                 dataValue2 = rawData[3].toFloat()  //皮肤油分
+                dataValue3 = rawData[4].toFloat()
             }
         }
         Log.d("parseRawData","curTypeData:${curTypeData},dataValue:${dataValue},dataValue2:${dataValue2}")
@@ -312,7 +314,7 @@ class BluetoothService : Service() {
             dataType = curTypeData,
             value1=dataValue,
             value2 = dataValue2,
-            value3 = 0f)
+            value3 = dataValue3)
     }
 
     // 处理批量数据：存库 + 广播
@@ -424,7 +426,7 @@ class BluetoothService : Service() {
             }
             if (saveSuccess and (curTypeData != "06")) {
                 val intent = Intent(ACTION_DATA_AVAILABLE)
-                intent.putExtra(EXTRA_SINGLE_DATA, dataList.value1?.toInt())    // 传入状态码
+                intent.putExtra(EXTRA_SINGLE_DATA, dataList.value3?.toInt())    // 传入状态码
                 localBroadcastManager.sendBroadcast(intent) // 发送广播
             }
         }

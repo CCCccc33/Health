@@ -84,6 +84,7 @@ class HeartRateActivity : AppCompatActivity() {
     private var mbarChart: BarChart? = null
     val barEntries1 = mutableListOf<BarEntry>() // 第一组：实际值
     val barEntries2 = mutableListOf<BarEntry>() // 第二组：参考值
+    var stateList = mutableListOf<BarEntry>()
     ///******lineChart***********//
 
     private var isShowingRealtimeChart = false
@@ -122,12 +123,6 @@ class HeartRateActivity : AppCompatActivity() {
                             timeUtils.month,
                             timeUtils.week,
                             timeUtils.day)
-//                        val data = intent.getIntExtra(EXTRA_SINGLE_DATA,0)
-//                        Log.d(TAG,"data:${data}")
-//                        runOnUiThread {
-//                            selectData.setText("${String.format("%.1f", data)}")
-//                        }
-
                     }else{
                         if (isShowingRealtimeChart) {
                             if (!isServiceConnected){
@@ -192,8 +187,16 @@ class HeartRateActivity : AppCompatActivity() {
                 highRange = 100 until 110
             }
             "皮肤状态" ->{
-                medRange = 50 until 80
-                highRange = 80 until 100
+                when(data){
+                    1 -> analyzeContent.setText("您的${typeData}偏粗糙哦⚠\uFE0F！")
+                    2 ->analyzeContent.setText("您的${typeData}略粗糙\uD83D\uDE10！")
+                    3 ->analyzeContent.setText("您的${typeData}正常✅！")
+                    4 ->analyzeContent.setText("您的${typeData}偏柔软\uD83D\uDC4D，状态很不错！")
+                    5 ->analyzeContent.setText("您的${typeData}柔细光滑\uD83C\uDF1F！")
+                    else -> analyzeContent.setText("")
+                }
+                Log.d("皮肤状态","等级：${data}")
+                return
             }
             "肺活量" ->{
                 medRange = 2500 until 5000
@@ -391,6 +394,7 @@ class HeartRateActivity : AppCompatActivity() {
                         Log.d(TAG,"选择${e.x.toInt()}(e),${xIndex}(h)")
                         var value2 = 0f // 第二组（参考值）
                         var value = 0f//e.y // 比如 70.5f
+                        var value3 = 0f
                         for (entry in barEntries1) {
                             if (entry.x.toInt() == xIndex) {
                                 value = entry.y
@@ -405,16 +409,28 @@ class HeartRateActivity : AppCompatActivity() {
                                 }
                             }
                         }
+                        if ( typeData == "皮肤状态"){
+                            for (entry in stateList) {
+                                if (entry.x.toInt() == xIndex) {
+                                    value3 = entry.y
+                                    break
+                                }
+                            }
+                        }
                         val xLabel = if (xIndex in xAxisLabels.indices) xAxisLabels[xIndex] else "未知"
 
                         Log.d(TAG, "维度：${typeData}，标签：$xLabel，数值：$value")
                         runOnUiThread {
-                            if ((typeData == "血压") || (typeData == "皮肤状态")){
-                                selectData.setText("${String.format("%.1f",value)}/${String.format("%.1f",value2)}")
-                            }else{
-                                selectData.setText("${String.format("%.1f", value)}")
+                            when (typeData){
+                                "血压" ->{ selectData.setText("${String.format("%.1f",value)}/${String.format("%.1f",value2)}") }
+                                "皮肤状态" ->{ selectData.setText("${value.toInt()}/${value2.toInt()}") }
+                                else -> { selectData.setText("${String.format("%.1f", value)}") }
                             }
-                            dataAnalysis(value.toInt(),typeData)
+                            if (typeData == "皮肤状态"){
+                                dataAnalysis(value3.toInt(),typeData)
+                            }else{
+                                dataAnalysis(value.toInt(),typeData)
+                            }
                         }
                     }
                 }
@@ -650,6 +666,9 @@ class HeartRateActivity : AppCompatActivity() {
                 getAverageData(healthDataList, 1, barEntries1, typeChoose)
                 if ((typeData == "血压") || (typeData == "皮肤状态")) {
                     getAverageData(healthDataList, 2, barEntries2, typeChoose)
+                    if (typeData == "皮肤状态"){
+                        getAverageData(healthDataList, 3, stateList, typeChoose)
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -659,10 +678,10 @@ class HeartRateActivity : AppCompatActivity() {
     fun getAverageData(dataList:List<HealthData>,dataType:Int,barEntry: MutableList<BarEntry>,keyType: String = "day"){
         val valueMap = mutableMapOf<Int, MutableList<Float>>()
         for (data in dataList) {
-            val value: Float = if (dataType == 2){  //血压的收缩压
-               data.value2?:continue
-            }else{
-                data.value1?:continue
+            val value: Float = when(dataType){
+                2 ->data.value2?:continue
+                3 ->data.value3?:continue
+                else -> data.value1?:continue
             }
             val key = when (keyType) {
                 "hour" -> {
@@ -681,7 +700,8 @@ class HeartRateActivity : AppCompatActivity() {
             val averageValue = valueList.average().toFloat()
             val x = if (keyType == "week") convertDayToWeekday(dataList.first().year,
                 dataList.first().month,
-                dataList.first().day) else key.toFloat()
+                dataList.first().day) else
+                    key.toFloat()
             Log.d("getAverageData","day:${x},valueList:${valueList}")
             entries.add(BarEntry(x, averageValue))
         }
